@@ -237,8 +237,13 @@ openwokwi/
 ├── scripts/
 │   └── generate-component-metadata.ts    # AST parser for component discovery
 │
-├── ARCHITECTURE.md                 # Detailed architecture documentation
-├── WOKWI_LIBS.md                   # Wokwi integration documentation
+├── doc/
+│   ├── ARCHITECTURE.md                 # Detailed architecture documentation
+│   ├── WOKWI_LIBS.md                   # Wokwi integration documentation
+│   ├── SETUP_COMPLETE.md               # Project status overview
+│   └── examples/                       # Example screenshots
+│
+├── CLAUDE.md                       # AI assistant guidance
 └── update-wokwi-libs.bat           # Update local Wokwi libraries
 ```
 
@@ -290,7 +295,7 @@ npm install
 npm run build
 ```
 
-See [WOKWI_LIBS.md](WOKWI_LIBS.md) for more details about Wokwi integration.
+See [WOKWI_LIBS.md](doc/WOKWI_LIBS.md) for more details about Wokwi integration.
 
 ## Troubleshooting
 

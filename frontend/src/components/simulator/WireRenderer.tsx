@@ -40,6 +40,7 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
   const [previewOrthoPoints, setPreviewOrthoPoints] = useState<Array<{ x: number; y: number }> | null>(null);
 
   const svgRef = useRef<SVGGElement>(null);
+  const rafRef = useRef<number | null>(null); // For requestAnimationFrame
 
   // Generate SVG path (memoized for performance)
   // Use preview points during drag, actual wire points otherwise
@@ -56,9 +57,41 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
   }, [wire, previewOrthoPoints]);
 
   // Compute segments (memoized)
+  // Use preview points during drag for accurate segment positions
   const segments = useMemo(() => {
+    if (previewOrthoPoints) {
+      // During drag, compute segments from preview points
+      const previewSegments: WireSegment[] = [];
+      for (let i = 0; i < previewOrthoPoints.length - 1; i++) {
+        const start = previewOrthoPoints[i];
+        const end = previewOrthoPoints[i + 1];
+
+        if (start.x === end.x && start.y === end.y) continue;
+
+        const orientation = start.y === end.y ? 'horizontal' : 'vertical';
+        const length =
+          orientation === 'horizontal'
+            ? Math.abs(end.x - start.x)
+            : Math.abs(end.y - start.y);
+
+        previewSegments.push({
+          id: `${wire.id}-seg-${i}`,
+          startPoint: start,
+          endPoint: end,
+          orientation,
+          midPoint: {
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2,
+          },
+          length,
+          startIndex: i,
+          endIndex: i + 1,
+        });
+      }
+      return previewSegments;
+    }
     return computeSegments(wire);
-  }, [wire]);
+  }, [wire, previewOrthoPoints]);
 
   // Handle wire selection
   const handleWireClick = useCallback(
@@ -73,36 +106,54 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
       if (dragState) {
-        // Handle dragging - use local state for smooth updates
-        const svg = svgRef.current?.ownerSVGElement;
-        if (!svg) return;
-
-        const svgRect = svg.getBoundingClientRect();
-        const mouseX = e.clientX - svgRect.left;
-        const mouseY = e.clientY - svgRect.top;
-
-        const { segment, startMousePos, originalOrthoPoints } = dragState;
-
-        // Calculate offset perpendicular to segment
-        let offset = 0;
-        if (segment.orientation === 'horizontal') {
-          offset = mouseY - startMousePos.y;
-        } else {
-          offset = mouseX - startMousePos.x;
+        // Cancel previous animation frame
+        if (rafRef.current !== null) {
+          cancelAnimationFrame(rafRef.current);
         }
 
-        // No grid snapping during drag for smooth movement
-        // Grid snapping will be applied on mouse up
+        // Handle dragging - use requestAnimationFrame for smooth updates
+        rafRef.current = requestAnimationFrame(() => {
+          const svg = svgRef.current?.ownerSVGElement;
+          if (!svg) return;
 
-        // Update orthogonal points (local preview)
-        const newOrthoPoints = updateOrthogonalPointsForSegmentDrag(
-          originalOrthoPoints,
-          segment,
-          offset
-        );
+          const svgRect = svg.getBoundingClientRect();
+          const mouseX = e.clientX - svgRect.left;
+          const mouseY = e.clientY - svgRect.top;
 
-        // Update preview state (doesn't touch the store)
-        setPreviewOrthoPoints(newOrthoPoints);
+          const { segment, startMousePos, originalOrthoPoints } = dragState;
+
+          // Calculate offset perpendicular to segment
+          let offset = 0;
+          if (segment.orientation === 'horizontal') {
+            offset = mouseY - startMousePos.y;
+          } else {
+            offset = mouseX - startMousePos.x;
+          }
+
+          console.log('🎯 Drag Update:', {
+            segmentId: segment.id,
+            orientation: segment.orientation,
+            offset,
+            originalPointsCount: originalOrthoPoints.length,
+            mousePos: { x: mouseX, y: mouseY },
+          });
+
+          // No grid snapping during drag for smooth movement
+          // Grid snapping will be applied on mouse up
+
+          // Update orthogonal points (local preview)
+          const newOrthoPoints = updateOrthogonalPointsForSegmentDrag(
+            originalOrthoPoints,
+            segment,
+            offset
+          );
+
+          console.log('📍 New Ortho Points:', newOrthoPoints);
+
+          // Update preview state (doesn't touch the store)
+          setPreviewOrthoPoints(newOrthoPoints);
+          rafRef.current = null;
+        });
       } else if (isSelected) {
         // Update hovered segment
         const svg = svgRef.current?.ownerSVGElement;
@@ -134,6 +185,18 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
       const pathPoints = getPathPoints(wire);
       const orthoPoints = generateOrthogonalPoints(pathPoints);
 
+      console.log('🚀 Start Dragging Segment:', {
+        segmentId: segment.id,
+        orientation: segment.orientation,
+        segmentStart: segment.startPoint,
+        segmentEnd: segment.endPoint,
+        pathPointsCount: pathPoints.length,
+        orthoPointsCount: orthoPoints.length,
+        wireStart: wire.start,
+        wireEnd: wire.end,
+        wireControlPoints: wire.controlPoints,
+      });
+
       setDragState({
         segment,
         startMousePos: { x: mouseX, y: mouseY },
@@ -144,6 +207,14 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
   );
 
   const handleMouseUp = useCallback(() => {
+    console.log('🖱️ Mouse Up - Drag State:', {
+      hasDragState: !!dragState,
+      hasPreviewPoints: !!previewOrthoPoints,
+      previewPointsCount: previewOrthoPoints?.length,
+      wireStart: wire.start,
+      wireEnd: wire.end,
+    });
+
     if (dragState && previewOrthoPoints) {
       // Apply grid snapping to final position
       const GRID_SIZE = 20;
@@ -152,12 +223,20 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
         y: Math.round(p.y / GRID_SIZE) * GRID_SIZE,
       }));
 
+      console.log('📐 Snapped Points:', snappedPoints);
+
       // Convert back to control points
       const newControlPoints = orthogonalPointsToControlPoints(
         snappedPoints,
         wire.start,
         wire.end
       );
+
+      console.log('🔧 New Control Points:', newControlPoints);
+      console.log('🔌 Wire Endpoints:', {
+        start: wire.start,
+        end: wire.end,
+      });
 
       // Update store only once at the end
       updateWire(wire.id, { controlPoints: newControlPoints });
@@ -189,6 +268,15 @@ export const WireRenderer: React.FC<WireRendererProps> = ({ wire, isSelected }) 
       svg.style.cursor = 'pointer';
     }
   }, [hoveredSegment, dragState]);
+
+  // Cleanup animation frame on unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   return (
     <g

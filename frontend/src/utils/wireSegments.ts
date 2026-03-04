@@ -177,22 +177,38 @@ export function updateOrthogonalPointsForSegmentDrag(
 /**
  * Convert orthogonal points back to control points
  * Removes start/end points and intermediate points that are redundant
+ *
+ * IMPORTANT: The first and last orthoPoints should match the wire endpoints.
+ * We preserve ALL intermediate points that represent corners (direction changes).
  */
 export function orthogonalPointsToControlPoints(
   orthoPoints: Array<{ x: number; y: number }>,
   start: { x: number; y: number },
   end: { x: number; y: number }
 ): WireControlPoint[] {
+  if (orthoPoints.length < 2) {
+    return [];
+  }
+
   // Remove first and last points (those are start/end endpoints)
   const innerPoints = orthoPoints.slice(1, -1);
 
-  // Remove redundant points (those that are collinear with neighbors)
+  if (innerPoints.length === 0) {
+    return [];
+  }
+
+  // Use actual orthoPoints for prev/next comparison (not start/end parameters)
+  const actualStart = orthoPoints[0];
+  const actualEnd = orthoPoints[orthoPoints.length - 1];
+
+  // Keep only corner points (where direction changes)
   const controlPoints: WireControlPoint[] = [];
 
   for (let i = 0; i < innerPoints.length; i++) {
     const current = innerPoints[i];
-    const prev = i === 0 ? start : innerPoints[i - 1];
-    const next = i === innerPoints.length - 1 ? end : innerPoints[i + 1];
+    // Get prev from orthoPoints (index i in innerPoints = index i+1 in orthoPoints)
+    const prev = orthoPoints[i]; // Previous point in orthoPoints
+    const next = orthoPoints[i + 2]; // Next point in orthoPoints
 
     // Check if current point is a corner (changes direction)
     const isCorner =

@@ -293,18 +293,24 @@ Enable verbose logging:
 - ✅ Compilation via arduino-cli to .hex files
 - ✅ Real AVR8 emulation with avr8js
 - ✅ Pin state tracking and component updates
-- ✅ Visual components (Arduino Uno, LEDs, resistors, buttons)
-- ✅ Wire rendering (visual only, not functional)
+- ✅ Dynamic component system with 48+ wokwi-elements components
+- ✅ Component picker modal with search and categories
+- ✅ Component property dialog (single-click interaction)
+- ✅ Component rotation (90° increments)
+- ✅ Wire creation and rendering (orthogonal routing)
+- ✅ Segment-based wire editing (drag segments perpendicular to orientation)
+- ✅ Real-time wire preview with grid snapping (20px)
+- ✅ Pin overlay system for wire connections
 
 **In Progress:**
-- 🚧 Wire editing and creation UI
-- 🚧 Functional wire connections (signal routing)
+- 🚧 Functional wire connections (electrical signal routing)
+- 🚧 Wire validation and error handling
 
 **Planned:**
-- 📋 More components (sensors, displays, motors)
 - 📋 Serial monitor
 - 📋 Project persistence (SQLite)
 - 📋 Multi-board support (Mega, Nano, ESP32)
+- 📋 Undo/redo functionality
 
 ## Additional Resources
 

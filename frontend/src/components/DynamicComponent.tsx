@@ -228,7 +228,7 @@ export const DynamicComponent: React.FC<DynamicComponentProps> = ({
         borderRadius: '4px',
         padding: '4px',
         userSelect: 'none',
-        zIndex: isSelected ? 1000 : 1,
+        zIndex: isSelected ? 5 : 1,
         pointerEvents: 'auto',
         transform: properties.rotation ? `rotate(${properties.rotation}deg)` : undefined,
         transformOrigin: 'center center',

@@ -203,28 +203,39 @@ class ArduinoCLIService:
         Search for Arduino libraries
         """
         try:
-            # arduino-cli lib search <query> --format json
-            process = await asyncio.create_subprocess_exec(
-                self.cli_path,
-                "lib",
-                "search",
-                query,
-                "--format", "json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            def _run():
+                return subprocess.run(
+                    [self.cli_path, "lib", "search", query, "--format", "json"],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace'
+                )
 
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode != 0:
-                print(f"Error searching libraries: {stderr.decode()}")
-                return {"success": False, "error": stderr.decode()}
+            result = await asyncio.to_thread(_run)
+            stdout, stderr = result.stdout, result.stderr
+
+            if result.returncode != 0:
+                print(f"Error searching libraries: {stderr}")
+                return {"success": False, "error": stderr}
                 
             import json
             try:
-                results = json.loads(stdout.decode())
-                # The arduino-cli JSON output for search usually contains a "libraries" array
+                results = json.loads(stdout)
                 libraries = results.get("libraries", [])
+
+                # arduino-cli search returns each lib with a "releases" dict.
+                # Inject a "latest" key with the data of the highest version so the
+                # frontend can access lib.latest.version / author / sentence directly.
+                def _parse_version(v: str):
+                    try:
+                        return tuple(int(x) for x in v.split("."))
+                    except Exception:
+                        return (0,)
+
+                for lib in libraries:
+                    releases = lib.get("releases") or {}
+                    if releases:
+                        latest_key = max(releases.keys(), key=_parse_version)
+                        lib["latest"] = {**releases[latest_key], "version": latest_key}
+
                 return {"success": True, "libraries": libraries}
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid output format from arduino-cli"}
@@ -239,24 +250,21 @@ class ArduinoCLIService:
         """
         try:
             print(f"Installing library: {library_name}")
-            # arduino-cli lib install <name>
-            process = await asyncio.create_subprocess_exec(
-                self.cli_path,
-                "lib",
-                "install",
-                library_name,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
 
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode == 0:
+            def _run():
+                return subprocess.run(
+                    [self.cli_path, "lib", "install", library_name],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace'
+                )
+
+            result = await asyncio.to_thread(_run)
+
+            if result.returncode == 0:
                 print(f"Successfully installed {library_name}")
-                return {"success": True, "stdout": stdout.decode()}
+                return {"success": True, "stdout": result.stdout}
             else:
-                print(f"Failed to install {library_name}: {stderr.decode()}")
-                return {"success": False, "error": stderr.decode(), "stdout": stdout.decode()}
+                print(f"Failed to install {library_name}: {result.stderr}")
+                return {"success": False, "error": result.stderr, "stdout": result.stdout}
 
         except Exception as e:
             print(f"Exception installing library: {e}")
@@ -267,36 +275,39 @@ class ArduinoCLIService:
         List all installed Arduino libraries
         """
         try:
-            # arduino-cli lib list --format json
-            process = await asyncio.create_subprocess_exec(
-                self.cli_path,
-                "lib",
-                "list",
-                "--format", "json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
+            def _run():
+                return subprocess.run(
+                    [self.cli_path, "lib", "list", "--format", "json"],
+                    capture_output=True, text=True, encoding='utf-8', errors='replace'
+                )
 
-            stdout, stderr = await process.communicate()
-            
-            if process.returncode != 0:
-                print(f"Error listing libraries: {stderr.decode()}")
-                return {"success": False, "error": stderr.decode()}
+            result = await asyncio.to_thread(_run)
+            stdout, stderr = result.stdout, result.stderr
+
+            if result.returncode != 0:
+                print(f"Error listing libraries: {stderr}")
+                return {"success": False, "error": stderr}
                 
             import json
             try:
-                # The output when no libraries are found might be empty or different
                 if not stdout.strip():
                     return {"success": True, "libraries": []}
-                    
-                results = json.loads(stdout.decode())
-                # Should be a list directly or a dict with lists inside, check both forms
+
+                results = json.loads(stdout)
+
+                # arduino-cli lib list --format json wraps results in "installed_libraries"
                 if isinstance(results, list):
-                    return {"success": True, "libraries": results}
-                elif isinstance(results, dict) and "libraries" in results:
-                     return {"success": True, "libraries": results.get("libraries", [])}
+                    libraries = results
+                elif isinstance(results, dict):
+                    libraries = (
+                        results.get("installed_libraries")
+                        or results.get("libraries")
+                        or []
+                    )
                 else:
-                     return {"success": True, "libraries": results} # Best effort fallback
+                    libraries = []
+
+                return {"success": True, "libraries": libraries}
 
             except json.JSONDecodeError:
                 return {"success": False, "error": "Invalid output format from arduino-cli"}

@@ -22,9 +22,11 @@ function setAdcVoltage(simulator: AnySimulator, pin: number, voltage: number): b
             const channel = pin - 26;
             // RP2040 ADC: 12-bit, 3.3V reference
             const adcValue = Math.round((voltage / 3.3) * 4095);
+            console.log(`[setAdcVoltage] RP2040 ch${channel} = ${adcValue} (${voltage.toFixed(3)}V)`);
             simulator.setADCValue(channel, adcValue);
             return true;
         }
+        console.warn(`[setAdcVoltage] RP2040 pin ${pin} is not an ADC pin (26-29)`);
         return false;
     }
     // AVR: pins 14-19 → ADC channels 0-5
@@ -94,15 +96,21 @@ PartSimulationRegistry.register('rgb-led', {
 PartSimulationRegistry.register('potentiometer', {
     attachEvents: (element, simulator, getArduinoPinHelper) => {
         const pin = getArduinoPinHelper('SIG');
-        if (pin === null) return () => { };
+        console.log(`[Potentiometer] attachEvents called, SIG pin resolved to: ${pin}`);
+        if (pin === null) {
+            console.warn('[Potentiometer] No SIG pin found — skipping ADC attachment');
+            return () => { };
+        }
 
         // Determine reference voltage based on board type
         const isRP2040 = simulator instanceof RP2040Simulator;
         const refVoltage = isRP2040 ? 3.3 : 5.0;
+        console.log(`[Potentiometer] Board type: ${isRP2040 ? 'RP2040' : 'AVR'}, refV: ${refVoltage}`);
 
         const onInput = () => {
             const raw = parseInt((element as any).value || '0', 10);
             const volts = (raw / 1023.0) * refVoltage;
+            console.log(`[Potentiometer] pin=${pin}, raw=${raw}, volts=${volts.toFixed(3)}`);
             if (!setAdcVoltage(simulator, pin, volts)) {
                 console.warn(`[Potentiometer] ADC not available for pin ${pin}`);
             }

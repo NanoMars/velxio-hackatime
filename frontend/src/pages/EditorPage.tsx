@@ -6,10 +6,25 @@ import React, { useRef, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { CodeEditor } from '../components/editor/CodeEditor';
 import { EditorToolbar } from '../components/editor/EditorToolbar';
+import { CompilationConsole } from '../components/editor/CompilationConsole';
 import { SimulatorCanvas } from '../components/simulator/SimulatorCanvas';
 import { SerialMonitor } from '../components/simulator/SerialMonitor';
 import { useSimulatorStore } from '../store/useSimulatorStore';
+import type { CompilationLog } from '../utils/compilationLogger';
 import '../App.css';
+
+const BOTTOM_PANEL_MIN = 80;
+const BOTTOM_PANEL_MAX = 600;
+const BOTTOM_PANEL_DEFAULT = 200;
+
+const resizeHandleStyle: React.CSSProperties = {
+  height: 5,
+  flexShrink: 0,
+  cursor: 'row-resize',
+  background: '#2a2d2e',
+  borderTop: '1px solid #3c3c3c',
+  borderBottom: '1px solid #3c3c3c',
+};
 
 export const EditorPage: React.FC = () => {
   const [editorWidthPct, setEditorWidthPct] = useState(45);
@@ -17,7 +32,9 @@ export const EditorPage: React.FC = () => {
   const resizingRef = useRef(false);
   const serialMonitorOpen = useSimulatorStore((s) => s.serialMonitorOpen);
   const toggleSerialMonitor = useSimulatorStore((s) => s.toggleSerialMonitor);
-  const [serialHeightPct, setSerialHeightPct] = useState(30);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const [compileLogs, setCompileLogs] = useState<CompilationLog[]>([]);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(BOTTOM_PANEL_DEFAULT);
 
   const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -43,6 +60,27 @@ export const EditorPage: React.FC = () => {
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   }, []);
+
+  const handleBottomPanelResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = bottomPanelHeight;
+
+    const onMove = (ev: MouseEvent) => {
+      const delta = startY - ev.clientY;
+      setBottomPanelHeight(Math.max(BOTTOM_PANEL_MIN, Math.min(BOTTOM_PANEL_MAX, startHeight + delta)));
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [bottomPanelHeight]);
 
   return (
     <div className="app">
@@ -90,11 +128,33 @@ export const EditorPage: React.FC = () => {
       </header>
 
       <div className="app-container" ref={containerRef}>
-        <div className="editor-panel" style={{ width: `${editorWidthPct}%` }}>
-          <EditorToolbar />
-          <div className="editor-wrapper">
+        <div className="editor-panel" style={{ width: `${editorWidthPct}%`, display: 'flex', flexDirection: 'column' }}>
+          <EditorToolbar
+            consoleOpen={consoleOpen}
+            setConsoleOpen={setConsoleOpen}
+            compileLogs={compileLogs}
+            setCompileLogs={setCompileLogs}
+          />
+          <div className="editor-wrapper" style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
             <CodeEditor />
           </div>
+          {consoleOpen && (
+            <>
+              <div
+                onMouseDown={handleBottomPanelResizeMouseDown}
+                style={resizeHandleStyle}
+                title="Drag to resize"
+              />
+              <div style={{ height: bottomPanelHeight, flexShrink: 0 }}>
+                <CompilationConsole
+                  isOpen={consoleOpen}
+                  onClose={() => setConsoleOpen(false)}
+                  logs={compileLogs}
+                  onClear={() => setCompileLogs([])}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         {/* Resize handle */}
@@ -103,13 +163,20 @@ export const EditorPage: React.FC = () => {
         </div>
 
         <div className="simulator-panel" style={{ width: `${100 - editorWidthPct}%`, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: serialMonitorOpen ? `0 0 ${100 - serialHeightPct}%` : '1 1 auto', overflow: 'hidden', position: 'relative' }}>
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', minHeight: 0 }}>
             <SimulatorCanvas />
           </div>
           {serialMonitorOpen && (
-            <div style={{ flex: `0 0 ${serialHeightPct}%`, minHeight: 100, display: 'flex', flexDirection: 'column' }}>
-              <SerialMonitor />
-            </div>
+            <>
+              <div
+                onMouseDown={handleBottomPanelResizeMouseDown}
+                style={resizeHandleStyle}
+                title="Drag to resize"
+              />
+              <div style={{ height: bottomPanelHeight, flexShrink: 0 }}>
+                <SerialMonitor />
+              </div>
+            </>
           )}
         </div>
       </div>

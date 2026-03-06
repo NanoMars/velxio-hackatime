@@ -51,6 +51,7 @@ interface SimulatorState {
 
   // Serial monitor state
   serialOutput: string;
+  serialBaudRate: number;
   serialMonitorOpen: boolean;
 
   // Actions
@@ -164,6 +165,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     selectedWireId: null,
     wireInProgress: null,
     serialOutput: '',
+    serialBaudRate: 0,
     serialMonitorOpen: false,
 
     setBoardType: (type: BoardType) => {
@@ -178,7 +180,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       simulator.onSerialData = (char: string) => {
         set((s) => ({ serialOutput: s.serialOutput + char }));
       };
-      set({ boardType: type, simulator, compiledHex: null, serialOutput: '' });
+      if (simulator instanceof AVRSimulator) {
+        simulator.onBaudRateChange = (baudRate: number) => set({ serialBaudRate: baudRate });
+      }
+      set({ boardType: type, simulator, compiledHex: null, serialOutput: '', serialBaudRate: 0 });
       console.log(`Board switched to: ${type}`);
     },
 
@@ -191,7 +196,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       simulator.onSerialData = (char: string) => {
         set((s) => ({ serialOutput: s.serialOutput + char }));
       };
-      set({ simulator, serialOutput: '' });
+      if (simulator instanceof AVRSimulator) {
+        simulator.onBaudRateChange = (baudRate: number) => set({ serialBaudRate: baudRate });
+      }
+      set({ simulator, serialOutput: '', serialBaudRate: 0 });
       console.log(`Simulator initialized: ${boardType}`);
     },
 
@@ -239,7 +247,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           simulator.addI2CDevice(new I2CMemoryDevice(0x50) as RP2040I2CDevice);
         }
         simulator.start();
-        set({ running: true });
+        set({ running: true, serialMonitorOpen: true });
       }
     },
 
@@ -259,7 +267,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         simulator.onSerialData = (char: string) => {
           set((s) => ({ serialOutput: s.serialOutput + char }));
         };
-        set({ running: false, serialOutput: '' });
+        if (simulator instanceof AVRSimulator) {
+          simulator.onBaudRateChange = (baudRate: number) => set({ serialBaudRate: baudRate });
+        }
+        set({ running: false, serialOutput: '', serialBaudRate: 0 });
       }
     },
 

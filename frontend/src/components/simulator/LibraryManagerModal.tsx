@@ -33,26 +33,29 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
         }
     }, []);
 
-    // Fetch installed list when modal opens (to cross-reference in search tab)
+    // Reset state when modal closes
     useEffect(() => {
-        if (isOpen) {
-            fetchInstalled();
+        if (!isOpen) {
+            setSearchQuery('');
+            setSearchResults([]);
+            setStatusMsg(null);
         }
-    }, [isOpen, fetchInstalled]);
+    }, [isOpen]);
 
-    // Also refresh when switching to the installed tab
+    // Fetch installed list when modal opens or switching to installed tab
     useEffect(() => {
-        if (isOpen && activeTab === 'installed') {
-            fetchInstalled();
-        }
+        if (isOpen && activeTab === 'installed') fetchInstalled();
     }, [isOpen, activeTab, fetchInstalled]);
 
     useEffect(() => {
-        if (!searchQuery.trim()) {
-            setSearchResults([]);
-            return;
-        }
+        if (isOpen) fetchInstalled();
+    }, [isOpen, fetchInstalled]);
+
+    // Search: immediate on open (empty query), debounced when typing
+    useEffect(() => {
+        if (!isOpen) return;
         if (debounceRef.current) clearTimeout(debounceRef.current);
+        const delay = searchQuery ? 400 : 0;
         debounceRef.current = setTimeout(async () => {
             setLoadingSearch(true);
             setStatusMsg(null);
@@ -65,10 +68,10 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
             } finally {
                 setLoadingSearch(false);
             }
-        }, 500);
+        }, delay);
 
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-    }, [searchQuery]);
+    }, [searchQuery, isOpen]);
 
     const handleInstall = async (libName: string) => {
         setInstallingLib(libName);
@@ -89,9 +92,6 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
     };
 
     const handleClose = () => {
-        setStatusMsg(null);
-        setSearchQuery('');
-        setSearchResults([]);
         onClose();
     };
 
@@ -193,18 +193,20 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                         </div>
 
                         <div className="lib-list">
-                            {!searchQuery.trim() && (
+                            {loadingSearch && (
                                 <div className="lib-empty">
-                                    <p>Type a library name to search</p>
-                                    <p className="lib-empty-sub">e.g. "ArduinoJson", "Servo", "LiquidCrystal"</p>
+                                    <svg className="lib-spinner lib-spinner-center" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                                        <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                    </svg>
+                                    <p className="lib-empty-sub">{searchQuery ? `Searching "${searchQuery}"…` : 'Loading libraries…'}</p>
                                 </div>
                             )}
-                            {searchQuery.trim() && searchResults.length === 0 && !loadingSearch && (
+                            {!loadingSearch && searchResults.length === 0 && (
                                 <div className="lib-empty">
-                                    <p>No libraries found for "{searchQuery}"</p>
+                                    <p>{searchQuery ? `No libraries found for "${searchQuery}"` : 'No libraries available'}</p>
                                 </div>
                             )}
-                            {searchResults.map((lib, i) => (
+                            {!loadingSearch && searchResults.map((lib, i) => (
                                 <div key={i} className="lib-item">
                                     <div className="lib-item-info">
                                         <div className="lib-item-header">

@@ -8,6 +8,7 @@ import { useSimulatorStore } from '../../store/useSimulatorStore';
 
 export const SerialMonitor: React.FC = () => {
   const serialOutput = useSimulatorStore((s) => s.serialOutput);
+  const serialBaudRate = useSimulatorStore((s) => s.serialBaudRate);
   const running = useSimulatorStore((s) => s.running);
   const serialWrite = useSimulatorStore((s) => s.serialWrite);
   const clearSerialOutput = useSimulatorStore((s) => s.clearSerialOutput);
@@ -49,6 +50,9 @@ export const SerialMonitor: React.FC = () => {
       <div style={styles.header}>
         <span style={styles.title}>Serial Monitor</span>
         <div style={styles.headerControls}>
+          {serialBaudRate > 0 && (
+            <span style={styles.baudRate}>{serialBaudRate.toLocaleString()} baud</span>
+          )}
           <label style={styles.autoscrollLabel}>
             <input
               type="checkbox"
@@ -126,6 +130,15 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+  },
+  baudRate: {
+    color: '#569cd6',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    background: '#1e1e1e',
+    border: '1px solid #3a3a3a',
+    borderRadius: 3,
+    padding: '1px 6px',
   },
   autoscrollLabel: {
     color: '#999',

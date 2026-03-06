@@ -47,6 +47,8 @@ export class AVRSimulator {
 
   /** Serial output buffer — subscribers receive each byte or line */
   public onSerialData: ((char: string) => void) | null = null;
+  /** Fires whenever the sketch changes Serial baud rate (Serial.begin) */
+  public onBaudRateChange: ((baudRate: number) => void) | null = null;
   private lastPortBValue = 0;
   private lastPortCValue = 0;
   private lastPortDValue = 0;
@@ -92,6 +94,11 @@ export class AVRSimulator {
     this.usart.onByteTransmit = (value: number) => {
       if (this.onSerialData) {
         this.onSerialData(String.fromCharCode(value));
+      }
+    };
+    this.usart.onConfigurationChange = () => {
+      if (this.onBaudRateChange && this.usart) {
+        this.onBaudRateChange(this.usart.baudRate);
       }
     };
 
@@ -261,6 +268,11 @@ export class AVRSimulator {
       this.usart = new AVRUSART(this.cpu, usart0Config, 16000000);
       this.usart.onByteTransmit = (value: number) => {
         if (this.onSerialData) this.onSerialData(String.fromCharCode(value));
+      };
+      this.usart.onConfigurationChange = () => {
+        if (this.onBaudRateChange && this.usart) {
+          this.onBaudRateChange(this.usart.baudRate);
+        }
       };
 
       this.twi = new AVRTWI(this.cpu, twiConfig, 16000000);

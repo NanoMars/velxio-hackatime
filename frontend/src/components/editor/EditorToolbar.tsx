@@ -3,12 +3,18 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore, BOARD_FQBN, BOARD_LABELS } from '../../store/useSimulatorStore';
 import { compileCode } from '../../services/compilation';
 import { LibraryManagerModal } from '../simulator/LibraryManagerModal';
-import { CompilationConsole } from './CompilationConsole';
 import { parseCompileResult } from '../../utils/compilationLogger';
 import type { CompilationLog } from '../../utils/compilationLogger';
 import './EditorToolbar.css';
 
-export const EditorToolbar = () => {
+interface EditorToolbarProps {
+  consoleOpen: boolean;
+  setConsoleOpen: (open: boolean | ((v: boolean) => boolean)) => void;
+  compileLogs: CompilationLog[];
+  setCompileLogs: (logs: CompilationLog[] | ((prev: CompilationLog[]) => CompilationLog[])) => void;
+}
+
+export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compileLogs, setCompileLogs }: EditorToolbarProps) => {
   const { code } = useEditorStore();
   const {
     boardType,
@@ -23,12 +29,10 @@ export const EditorToolbar = () => {
   const [compiling, setCompiling] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [libManagerOpen, setLibManagerOpen] = useState(false);
-  const [consoleOpen, setConsoleOpen] = useState(false);
-  const [compileLogs, setCompileLogs] = useState<CompilationLog[]>([]);
 
   const addLog = useCallback((log: CompilationLog) => {
-    setCompileLogs((prev) => [...prev, log]);
-  }, []);
+    setCompileLogs((prev: CompilationLog[]) => [...prev, log]);
+  }, [setCompileLogs]);
 
   const handleCompile = async () => {
     setCompiling(true);
@@ -45,7 +49,7 @@ export const EditorToolbar = () => {
 
       // Parse the full result into log entries
       const resultLogs = parseCompileResult(result, boardLabel);
-      setCompileLogs((prev) => [...prev, ...resultLogs]);
+      setCompileLogs((prev: CompilationLog[]) => [...prev, ...resultLogs]);
 
       if (result.success) {
         if (result.hex_content) {
@@ -201,18 +205,6 @@ export const EditorToolbar = () => {
       {/* Error detail bar */}
       {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
         <div className="toolbar-error-detail">{message.text}</div>
-      )}
-
-      {/* Compilation Console */}
-      {consoleOpen && (
-        <div style={{ height: 200, flexShrink: 0 }}>
-          <CompilationConsole
-            isOpen={consoleOpen}
-            onClose={() => setConsoleOpen(false)}
-            logs={compileLogs}
-            onClear={() => setCompileLogs([])}
-          />
-        </div>
       )}
 
       <LibraryManagerModal isOpen={libManagerOpen} onClose={() => setLibManagerOpen(false)} />

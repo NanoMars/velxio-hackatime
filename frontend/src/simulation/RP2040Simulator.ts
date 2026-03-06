@@ -115,9 +115,16 @@ export class RP2040Simulator {
     this.rp2040.core.PC = 0x10000000;
 
     // ── Wire UART0 (default Serial port for Arduino-Pico) ────────────
+    let serialBuffer = '';
     this.rp2040.uart[0].onByte = (value: number) => {
+      const ch = String.fromCharCode(value);
+      serialBuffer += ch;
+      if (ch === '\n') {
+        console.log('[RP2040 UART0]', serialBuffer.trimEnd());
+        serialBuffer = '';
+      }
       if (this.onSerialData) {
-        this.onSerialData(String.fromCharCode(value));
+        this.onSerialData(ch);
       }
     };
 

@@ -224,6 +224,13 @@ class ArduinoCLIService:
 
             # arduino-cli requires sketch name to match directory name
             sketch_file = sketch_dir / "sketch.ino"
+
+            # For RP2040 boards, redirect Serial (USB CDC) to Serial1 (UART0)
+            # The emulator captures UART0 output, but the arduino-pico core
+            # defaults Serial to USB CDC which isn't emulated.
+            if "rp2040" in board_fqbn:
+                code = "#define Serial Serial1\n" + code
+
             sketch_file.write_text(code)
             print(f"Created sketch file: {sketch_file}")
 

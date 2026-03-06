@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { LandingPage } from './pages/LandingPage';
 import { EditorPage } from './pages/EditorPage';
 import { ExamplesPage } from './pages/ExamplesPage';
 import { LoginPage } from './pages/LoginPage';
@@ -19,7 +20,8 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<EditorPage />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/editor" element={<EditorPage />} />
         <Route path="/examples" element={<ExamplesPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

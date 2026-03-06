@@ -49,7 +49,7 @@ export const ProjectPage: React.FC = () => {
         <div style={{ color: '#f44747', fontSize: 16, textAlign: 'center' }}>
           <p>{error}</p>
           <button onClick={() => navigate('/')} style={{ marginTop: 12, background: '#0e639c', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 4, cursor: 'pointer' }}>
-            Go home
+            Go to home
           </button>
         </div>
       </div>

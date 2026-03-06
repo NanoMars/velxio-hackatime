@@ -68,7 +68,7 @@ export const ExamplesPage: React.FC = () => {
     setWires(wiresWithPositions);
 
     // Navigate to the editor
-    navigate('/');
+    navigate('/editor');
   };
 
   return <ExamplesGallery onLoadExample={handleLoadExample} />;

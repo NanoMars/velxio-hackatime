@@ -31,7 +31,7 @@ export const RegisterPage: React.FC = () => {
     try {
       const user = await register(username.toLowerCase(), email, password);
       setUser(user);
-      navigate('/');
+      navigate('/editor');
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Registration failed.');
     } finally {

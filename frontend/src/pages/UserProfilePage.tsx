@@ -27,7 +27,7 @@ export const UserProfilePage: React.FC = () => {
         <div style={styles.header}>
           <h1 style={styles.title}>{username}</h1>
           {isOwn && (
-            <Link to="/" style={styles.newBtn}>+ New project</Link>
+            <Link to="/editor" style={styles.newBtn}>+ New project</Link>
           )}
         </div>
 

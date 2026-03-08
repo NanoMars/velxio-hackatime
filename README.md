@@ -10,8 +10,20 @@ A fully local, open-source Arduino emulator. Write Arduino code, compile it, and
 [![License: AGPLv3](https://img.shields.io/badge/License-AGPL%20v3-blue?style=for-the-badge)](LICENSE)
 [![Commercial License](https://img.shields.io/badge/Commercial%20License-Available-green?style=for-the-badge)](COMMERCIAL_LICENSE.md)
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-EA4AAA?style=flat&logo=githubsponsors)](https://github.com/sponsors/davidmonterocrespo24)
-[![PayPal](https://img.shields.io/badge/Donate-PayPal-0070BA?style=flat&logo=paypal)](https://paypal.me/odoonext)
+
+
+---
+
+## Support the Project
+
+Velxio is free and open-source. Building and maintaining a full Arduino emulator takes a lot of time — if it saves you time or you enjoy the project, sponsoring me directly helps keep development going.
+
+| Platform | Link |
+|---|---|
+| **GitHub Sponsors** (preferred) | [github.com/sponsors/davidmonterocrespo24](https://github.com/sponsors/davidmonterocrespo24) |
+| **PayPal** | [paypal.me/odoonext](https://paypal.me/odoonext) |
+
+Your support helps cover server costs, library maintenance, and frees up time to add new boards, components, and features. Thank you! 
 
 ---
 
@@ -249,6 +261,8 @@ velxio/
 ## Contributing
 
 Suggestions, bug reports, and pull requests are welcome at [github.com/davidmonterocrespo24/velxio](https://github.com/davidmonterocrespo24/velxio).
+
+If you'd like to support the project financially, see the [Support the Project](#️-support-the-project) section above or sponsor directly at [github.com/sponsors/davidmonterocrespo24](https://github.com/sponsors/davidmonterocrespo24).
 
 > **Note:** All contributors must sign a Contributor License Agreement (CLA) so that the dual-licensing model remains valid. A CLA check runs automatically on pull requests.
 

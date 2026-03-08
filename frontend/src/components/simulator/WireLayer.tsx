@@ -42,6 +42,7 @@ export const WireLayer: React.FC = () => {
         left: 0,
         width: '100%',
         height: '100%',
+        overflow: 'visible',  // Allow wires to render outside the SVG viewport (e.g. negative coords)
         pointerEvents: 'auto',  // Enable pointer events for control points
         zIndex: 1,  // Below components (which have zIndex: 2)
       }}

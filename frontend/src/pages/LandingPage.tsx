@@ -1,6 +1,6 @@
-import { Link } from 'react-router-dom';
-import { AppHeader } from '../components/layout/AppHeader';
-import '@wokwi/elements';
+import { useState, useRef, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../store/useAuthStore';
 import './LandingPage.css';
 
 const GITHUB_URL = 'https://github.com/davidmonterocrespo24/velxio';
@@ -244,6 +244,39 @@ const CircuitSchematic = () => (
 );
 
 /* ── Board SVGs ───────────────────────────────────────── */
+const BoardUno = () => (
+  <svg viewBox="0 0 120 80" className="board-svg">
+    <rect x="2" y="2" width="116" height="76" rx="4" fill="#006633" stroke="#004d26" strokeWidth="1.5" />
+    <rect x="42" y="22" width="36" height="36" rx="2" fill="#1a1a1a" stroke="#333" strokeWidth="1" />
+    <rect x="0" y="28" width="14" height="24" rx="2" fill="#555" stroke="#444" strokeWidth="1" />
+    <circle cx="108" cy="20" r="7" fill="#333" stroke="#222" strokeWidth="1" />
+    {[0,1,2,3,4,5,6,7,8,9,11,12,13].map((i) => (
+      <rect key={i} x={20 + i * 6.5} y="4" width="3" height="6" rx="0.5" fill="#d4a017" />
+    ))}
+    {[0,1,2,3,4,5].map((i) => (
+      <rect key={i} x={40 + i * 8} y="70" width="3" height="6" rx="0.5" fill="#d4a017" />
+    ))}
+    <circle cx="90" cy="12" r="2.5" fill="#00ff88" opacity="0.9" />
+    <text x="60" y="77" textAnchor="middle" fill="#00aa55" fontSize="5" fontFamily="monospace">Arduino Uno</text>
+  </svg>
+);
+
+const BoardNano = () => (
+  <svg viewBox="0 0 120 50" className="board-svg">
+    <rect x="2" y="2" width="116" height="46" rx="3" fill="#003399" stroke="#002277" strokeWidth="1.5" />
+    <rect x="44" y="12" width="24" height="24" rx="1.5" fill="#1a1a1a" stroke="#333" strokeWidth="1" />
+    <rect x="50" y="0" width="20" height="8" rx="2" fill="#555" stroke="#444" strokeWidth="1" />
+    {[0,1,2,3,4,5,6,7].map((i) => (
+      <rect key={i} x="4" y={8 + i * 4.5} width="6" height="3" rx="0.5" fill="#d4a017" />
+    ))}
+    {[0,1,2,3,4,5,6,7].map((i) => (
+      <rect key={i} x="110" y={8 + i * 4.5} width="6" height="3" rx="0.5" fill="#d4a017" />
+    ))}
+    <circle cx="28" cy="10" r="2" fill="#00ff88" opacity="0.9" />
+    <text x="60" y="44" textAnchor="middle" fill="#6699ff" fontSize="5" fontFamily="monospace">Arduino Nano</text>
+  </svg>
+);
+
 const BoardPico = () => (
   <svg viewBox="0 0 120 60" className="board-svg">
     <rect x="2" y="2" width="116" height="56" rx="3" fill="#f0f0f0" stroke="#ccc" strokeWidth="1.5" />
@@ -261,6 +294,23 @@ const BoardPico = () => (
   </svg>
 );
 
+const BoardMega = () => (
+  <svg viewBox="0 0 160 80" className="board-svg">
+    <rect x="2" y="2" width="156" height="76" rx="4" fill="#006633" stroke="#004d26" strokeWidth="1.5" />
+    <rect x="55" y="20" width="50" height="40" rx="2" fill="#1a1a1a" stroke="#333" strokeWidth="1" />
+    <rect x="0" y="28" width="14" height="24" rx="2" fill="#555" stroke="#444" strokeWidth="1" />
+    <circle cx="148" cy="20" r="7" fill="#333" stroke="#222" strokeWidth="1" />
+    {Array.from({length: 18}).map((_, i) => (
+      <rect key={i} x={18 + i * 7} y="4" width="3" height="6" rx="0.5" fill="#d4a017" />
+    ))}
+    {Array.from({length: 18}).map((_, i) => (
+      <rect key={i} x={18 + i * 7} y="70" width="3" height="6" rx="0.5" fill="#d4a017" />
+    ))}
+    <circle cx="130" cy="12" r="2.5" fill="#00ff88" opacity="0.9" />
+    <circle cx="138" cy="12" r="2.5" fill="#ff6600" opacity="0.9" />
+    <text x="80" y="77" textAnchor="middle" fill="#00aa55" fontSize="5" fontFamily="monospace">Arduino Mega 2560</text>
+  </svg>
+);
 
 /* ── Features ─────────────────────────────────────────── */
 const features = [
@@ -280,6 +330,78 @@ const IcoSponsor = () => (
     <path d="M8 14h.01M12 18h.01M16 14h.01" />
   </svg>
 );
+
+/* ── User nav dropdown ────────────────────────────────── */
+const UserMenu: React.FC = () => {
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  if (!user) return null;
+
+  const initials = user.username[0].toUpperCase();
+
+  return (
+    <div className="user-menu" ref={ref}>
+      <button className="user-menu-trigger" onClick={() => setOpen((v) => !v)}>
+        {user.avatar_url ? (
+          <img src={user.avatar_url} alt="" className="user-avatar" />
+        ) : (
+          <span className="user-avatar user-avatar-initials">{initials}</span>
+        )}
+        <span className="user-menu-name">{user.username}</span>
+        <svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10" style={{ opacity: 0.5 }}>
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+        </svg>
+      </button>
+      {open && (
+        <div className="user-menu-dropdown">
+          <div className="user-menu-header">
+            {user.avatar_url ? (
+              <img src={user.avatar_url} alt="" className="user-avatar user-avatar-lg" />
+            ) : (
+              <span className="user-avatar user-avatar-initials user-avatar-lg">{initials}</span>
+            )}
+            <div>
+              <div className="user-menu-uname">{user.username}</div>
+              <div className="user-menu-email">{user.email}</div>
+            </div>
+          </div>
+          <div className="user-menu-divider" />
+          <Link to="/editor" className="user-menu-item" onClick={() => setOpen(false)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" width="15" height="15">
+              <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+            </svg>
+            Open Editor
+          </Link>
+          <Link to={`/${user.username}`} className="user-menu-item" onClick={() => setOpen(false)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" width="15" height="15">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            My Projects
+          </Link>
+          <div className="user-menu-divider" />
+          <button className="user-menu-item user-menu-signout" onClick={async () => { setOpen(false); await logout(); navigate('/'); }}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" width="15" height="15">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
 
 /* ── Component ────────────────────────────────────────── */
 export const LandingPage: React.FC = () => {
@@ -423,6 +545,7 @@ export const LandingPage: React.FC = () => {
         </div>
         <div className="footer-links">
           <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+          <Link to="/docs">Docs</Link>
           <Link to="/examples">Examples</Link>
           <Link to="/editor">Editor</Link>
         </div>

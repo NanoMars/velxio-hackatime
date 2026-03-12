@@ -6,6 +6,7 @@ import { VirtualDS1307, VirtualTempSensor, I2CMemoryDevice } from '../simulation
 import type { RP2040I2CDevice } from '../simulation/RP2040Simulator';
 import type { Wire, WireInProgress, WireEndpoint } from '../types/wire';
 import { calculatePinPosition } from '../utils/pinPositionCalculator';
+import { useOscilloscopeStore } from './useOscilloscopeStore';
 
 export type BoardType = 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico';
 
@@ -121,8 +122,17 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
   // Create PinManager instance
   const pinManager = new PinManager();
 
-  // Create remote socket reference (cannot be strictly in state without triggering too many renders)
-  // We'll put it in state for simple disconnect, but typically useRef/module level is better.
+  /** Attach the oscilloscope pin-change-with-time callback to a simulator */
+  function wireOscilloscopeCallback(sim: AVRSimulator | RP2040Simulator): void {
+    sim.onPinChangeWithTime = (pin: number, state: boolean, timeMs: number) => {
+      const { channels, pushSample } = useOscilloscopeStore.getState();
+      for (const ch of channels) {
+        if (ch.pin === pin) {
+          pushSample(ch.id, timeMs, state);
+        }
+      }
+    };
+  }
 
   return {
     boardType: 'arduino-uno' as BoardType,
@@ -204,9 +214,9 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8001/api';
       const wsUrl = API_BASE.replace(/^https?:/, wsProtocol) + `/simulation/ws/${clientId}`;
-      
+
       const socket = new WebSocket(wsUrl);
-      
+
       socket.onopen = () => {
         console.log('Connected to remote simulator');
         set({ remoteConnected: true, remoteSocket: socket });
@@ -215,26 +225,26 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       socket.onmessage = (event) => {
         const data = JSON.parse(event.data);
         console.log("Remote Event:", data);
-        
+
         if (data.type === 'pin_change') {
           const { pin, state } = data.data;
           const { wires, simulator } = get();
-          
+
           if (!simulator) return;
-          
+
           // Find if this Pi pin is connected to the Arduino
           // We need to look for a wire where one end is the Pi and the other is the Arduino
           // In a real scenario we might have multiple Pi components, so we should match the clientId
           // Here we assume any Pi component connected to current simulator
-          const wire = wires.find(w => 
+          const wire = wires.find(w =>
             (w.start.componentId.includes('raspberry-pi') && w.start.pinName === String(pin)) ||
             (w.end.componentId.includes('raspberry-pi') && w.end.pinName === String(pin))
           );
-          
+
           if (wire) {
              const IsArduinoStart = !wire.start.componentId.includes('raspberry-pi');
              const targetEndpoint = IsArduinoStart ? wire.start : wire.end;
-             
+
              // If target is an arduino board pin, set its state
              if (targetEndpoint.componentId.startsWith('arduino-') || targetEndpoint.componentId === 'raspberry-pi-pico') {
                // We need boardPinToNumber utility to get the numeric pin
@@ -294,6 +304,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (simulator instanceof AVRSimulator) {
         simulator.onBaudRateChange = (baudRate: number) => set({ serialBaudRate: baudRate });
       }
+      wireOscilloscopeCallback(simulator);
       set({ boardType: type, simulator, compiledHex: null, serialOutput: '', serialBaudRate: 0 });
       console.log(`Board switched to: ${type}`);
     },
@@ -310,6 +321,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (simulator instanceof AVRSimulator) {
         simulator.onBaudRateChange = (baudRate: number) => set({ serialBaudRate: baudRate });
       }
+      wireOscilloscopeCallback(simulator);
       set({ simulator, serialOutput: '', serialBaudRate: 0 });
       console.log(`Simulator initialized: ${boardType}`);
     },

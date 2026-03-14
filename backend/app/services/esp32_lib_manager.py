@@ -1,13 +1,13 @@
 """
-EspLibManager — ESP32 emulation via lcgamboa libqemu-xtensa.dll.
+EspLibManager — ESP32 emulation via lcgamboa libqemu-xtensa (.dll/.so).
 
 Exposes the same public API as EspQemuManager so simulation.py can
 transparently switch between the two backends:
-  - DLL available  → full GPIO + ADC + UART + I2C + SPI + RMT + WiFi (this module)
-  - DLL missing    → serial-only via subprocess (esp_qemu_manager.py)
+  - lib available  → full GPIO + ADC + UART + I2C + SPI + RMT + WiFi (this module)
+  - lib missing    → serial-only via subprocess (esp_qemu_manager.py)
 
-Activation: set environment variable QEMU_ESP32_LIB to the DLL path,
-or place libqemu-xtensa.dll in the same directory as this module.
+Activation: set environment variable QEMU_ESP32_LIB to the library path,
+or place libqemu-xtensa.dll (Windows) / libqemu-xtensa.so (Linux) beside this module.
 
 Events emitted via callback(event_type, data):
   system        {event: 'booting'|'booted'|'crash'|'reboot'}

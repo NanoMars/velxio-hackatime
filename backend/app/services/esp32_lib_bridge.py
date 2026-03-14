@@ -43,6 +43,7 @@ import ctypes
 import logging
 import os
 import pathlib
+import sys
 import tempfile
 import threading
 
@@ -51,8 +52,9 @@ logger = logging.getLogger(__name__)
 # MinGW64 bin — Windows needs this on the DLL search path for glib2/libgcrypt deps
 _MINGW64_BIN = r"C:\msys64\mingw64\bin"
 
-# Default DLL path: same directory as this module (copied there after build)
-_DEFAULT_LIB = str(pathlib.Path(__file__).parent / "libqemu-xtensa.dll")
+# Default library path: .dll on Windows, .so on Linux/macOS
+_LIB_NAME = "libqemu-xtensa.dll" if sys.platform == "win32" else "libqemu-xtensa.so"
+_DEFAULT_LIB = str(pathlib.Path(__file__).parent / _LIB_NAME)
 
 # ── GPIO pinmap ──────────────────────────────────────────────────────────────
 # pinmap[0]  = total number of pin slots (40 for ESP32)
@@ -105,6 +107,7 @@ class Esp32LibBridge:
     """
 
     def __init__(self, lib_path: str, loop: asyncio.AbstractEventLoop):
+        self._lib_path = lib_path
         if os.name == 'nt' and os.path.isdir(_MINGW64_BIN):
             os.add_dll_directory(_MINGW64_BIN)
         self._lib:           ctypes.CDLL = ctypes.CDLL(lib_path)
@@ -160,8 +163,8 @@ class Esp32LibBridge:
         tmp.close()
         self._firmware_path = tmp.name
 
-        # ROM directory: esp32-v3-rom.bin lives beside the DLL
-        rom_dir = str(pathlib.Path(_DEFAULT_LIB).parent).encode()
+        # ROM directory: esp32-v3-rom.bin lives beside the library
+        rom_dir = str(pathlib.Path(self._lib_path).parent).encode()
 
         args_bytes = [
             b'qemu',

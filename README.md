@@ -96,6 +96,22 @@ Component Picker showing 48 available components with visual previews, search, a
 - **UART0** serial output displayed in Serial Monitor
 - **ADC** — 12-bit, 3.3V reference on GPIO 26-29 (A0-A3)
 
+### ESP32 Simulation (via lcgamboa QEMU)
+- **Real Xtensa LX6 dual-core emulation** via [lcgamboa/qemu](https://github.com/lcgamboa/qemu) fork
+- **Full GPIO** — all 40 GPIO pins with direction tracking and state callbacks
+- **UART0/1/2** — multi-UART serial with baud-rate detection
+- **ADC** — 12-bit, 3.3V reference on all ADC-capable pins (0–3300 mV injection)
+- **I2C** — synchronous bus with virtual device response support
+- **SPI** — full-duplex with configurable MISO byte injection
+- **RMT / NeoPixel** — hardware RMT decoder with WS2812 24-bit GRB frame decoding
+- **LEDC/PWM** — 16-channel duty cycle readout, mapped to LED brightness
+- **WiFi** — SLIRP NAT emulation (`WiFi.begin("PICSimLabWifi", "")`)
+- **arduino-esp32 2.0.17 (IDF 4.4.x)** — only compatible version with lcgamboa WiFi emulation
+- **Crash detection** — banner notification in UI with dismiss button
+- **Fully included in the Docker image** — zero extra setup required
+
+See [docs/ESP32_EMULATION.md](docs/ESP32_EMULATION.md) for the complete installation guide.
+
 ### Serial Monitor
 - **Live serial output** — characters as the sketch sends them via `Serial.print()`
 - **Auto baud-rate detection** — reads hardware registers, no manual configuration needed

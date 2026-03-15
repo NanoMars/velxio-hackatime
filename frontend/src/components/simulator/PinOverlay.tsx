@@ -55,7 +55,7 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
         left: `${componentX + wrapperOffsetX}px`,
         top: `${componentY + wrapperOffsetY}px`,
         pointerEvents: 'none',
-        zIndex: 10, // Above wires (1) and components, below modals/dialogs (1000+)
+        zIndex: 30, // Above wires (20) and components, below modals/dialogs (1000+)
       }}
     >
       {pins.map((pin, index) => {

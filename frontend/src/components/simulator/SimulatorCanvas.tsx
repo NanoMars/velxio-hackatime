@@ -6,6 +6,7 @@ import { DynamicComponent, createComponentFromMetadata } from '../DynamicCompone
 import { ComponentRegistry } from '../../services/ComponentRegistry';
 import { PinSelector } from './PinSelector';
 import { WireLayer } from './WireLayer';
+import type { SegmentHandle } from './WireLayer';
 import { BoardOnCanvas } from './BoardOnCanvas';
 import { BoardPickerModal } from './BoardPickerModal';
 import { PartSimulationRegistry } from '../../simulation/parts';
@@ -14,8 +15,11 @@ import { isBoardComponent, boardPinToNumber } from '../../utils/boardPinMapping'
 import { autoWireColor, WIRE_KEY_COLORS } from '../../utils/wireUtils';
 import {
   findWireNearPoint,
-  findSegmentNearPoint,
-  computeDragWaypoints,
+  getRenderedPoints,
+  getRenderedSegments,
+  moveSegment,
+  renderedToWaypoints,
+  renderedPointsToPath,
 } from '../../utils/wireHitDetection';
 import type { ComponentMetadata } from '../../types/component-metadata';
 import type { BoardKind } from '../../types/board';
@@ -125,19 +129,34 @@ export const SimulatorCanvas = () => {
 
   // Wire interaction state (canvas-level hit detection — bypasses SVG pointer-events issues)
   const [hoveredWireId, setHoveredWireId] = useState<string | null>(null);
-  const [wireDragPreview, setWireDragPreview] = useState<{
+  const [segmentDragPreview, setSegmentDragPreview] = useState<{
     wireId: string;
-    waypoints: { x: number; y: number }[];
+    overridePath: string;
   } | null>(null);
-  const wireInteractionRef = useRef<{
+  const segmentDragRef = useRef<{
     wireId: string;
-    startWorld: { x: number; y: number };
-    segment: import('../../utils/wireHitDetection').RenderedSegment | null;
-    originalWaypoints: { x: number; y: number }[];
+    segIndex: number;
+    axis: 'horizontal' | 'vertical';
+    renderedPts: { x: number; y: number }[];
     isDragging: boolean;
   } | null>(null);
+  /** Set to true during mouseup if a segment drag committed, so onClick can skip selection. */
+  const segmentDragJustCommittedRef = useRef(false);
   const wiresRef = useRef(wires);
   wiresRef.current = wires;
+
+  // Compute midpoint handles for the selected wire's segments
+  const segmentHandles = React.useMemo<SegmentHandle[]>(() => {
+    if (!selectedWireId) return [];
+    const wire = wires.find((w) => w.id === selectedWireId);
+    if (!wire) return [];
+    return getRenderedSegments(wire).map((seg, i) => ({
+      segIndex: i,
+      axis: seg.axis,
+      mx: (seg.x1 + seg.x2) / 2,
+      my: (seg.y1 + seg.y2) / 2,
+    }));
+  }, [selectedWireId, wires]);
 
   // Touch-specific state refs (for single-finger drag and pinch-to-zoom)
   const touchDraggedComponentIdRef = useRef<string | null>(null);
@@ -616,27 +635,15 @@ export const SimulatorCanvas = () => {
       return;
     }
 
-    // Handle wire segment dragging
-    if (wireInteractionRef.current) {
+    // Handle segment handle dragging
+    if (segmentDragRef.current) {
       const world = toWorld(e.clientX, e.clientY);
-      const wi = wireInteractionRef.current;
-
-      if (!wi.isDragging) {
-        const moved = Math.hypot(world.x - wi.startWorld.x, world.y - wi.startWorld.y);
-        if (moved > 4 / zoomRef.current) {
-          wi.isDragging = true;
-        }
-      }
-
-      if (wi.isDragging && wi.segment) {
-        const newWaypoints = computeDragWaypoints(
-          wi.originalWaypoints,
-          wi.segment.storedPairIndex,
-          world.x,
-          world.y,
-        );
-        setWireDragPreview({ wireId: wi.wireId, waypoints: newWaypoints });
-      }
+      const sd = segmentDragRef.current;
+      sd.isDragging = true;
+      const newValue = sd.axis === 'horizontal' ? world.y : world.x;
+      const newPts = moveSegment(sd.renderedPts, sd.segIndex, sd.axis, newValue);
+      const overridePath = renderedPointsToPath(newPts);
+      setSegmentDragPreview({ wireId: sd.wireId, overridePath });
       return;
     }
 
@@ -657,14 +664,19 @@ export const SimulatorCanvas = () => {
       return;
     }
 
-    // Commit wire segment drag
-    if (wireInteractionRef.current) {
-      const wi = wireInteractionRef.current;
-      if (wi.isDragging && wireDragPreview) {
-        updateWire(wi.wireId, { waypoints: wireDragPreview.waypoints });
+    // Commit segment handle drag
+    if (segmentDragRef.current) {
+      const sd = segmentDragRef.current;
+      if (sd.isDragging) {
+        segmentDragJustCommittedRef.current = true;
+        const world = toWorld(e.clientX, e.clientY);
+        const newValue = sd.axis === 'horizontal' ? world.y : world.x;
+        const newPts = moveSegment(sd.renderedPts, sd.segIndex, sd.axis, newValue);
+        updateWire(sd.wireId, { waypoints: renderedToWaypoints(newPts) });
       }
-      wireInteractionRef.current = null;
-      setWireDragPreview(null);
+      segmentDragRef.current = null;
+      setSegmentDragPreview(null);
+      return;
     }
 
     if (draggedComponentId) {
@@ -688,7 +700,7 @@ export const SimulatorCanvas = () => {
     }
   };
 
-  // Start panning on middle-click or right-click; wire drag on left-click near wire
+  // Start panning on middle-click or right-click
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
     if (e.button === 1 || e.button === 2) {
       e.preventDefault();
@@ -699,24 +711,31 @@ export const SimulatorCanvas = () => {
         panX: panRef.current.x,
         panY: panRef.current.y,
       };
-    } else if (e.button === 0 && !wireInProgress) {
-      // Check if clicking near a wire to start a drag interaction
-      const world = toWorld(e.clientX, e.clientY);
-      const threshold = 8 / zoomRef.current;
-      const wire = findWireNearPoint(wiresRef.current, world.x, world.y, threshold);
-      if (wire) {
-        const segment = findSegmentNearPoint(wire, world.x, world.y, threshold);
-        wireInteractionRef.current = {
-          wireId: wire.id,
-          startWorld: world,
-          segment,
-          originalWaypoints: [...(wire.waypoints ?? [])],
-          isDragging: false,
-        };
-        // Don't stopPropagation here — allow component drag detection to also run
-      }
     }
   };
+
+  // Handle mousedown on a segment handle circle (called from WireLayer)
+  const handleHandleMouseDown = useCallback(
+    (e: React.MouseEvent, segIndex: number) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (!selectedWireId) return;
+      const wire = wiresRef.current.find((w) => w.id === selectedWireId);
+      if (!wire) return;
+      const segments = getRenderedSegments(wire);
+      const seg = segments[segIndex];
+      if (!seg) return;
+      const expandedPts = getRenderedPoints(wire);
+      segmentDragRef.current = {
+        wireId: wire.id,
+        segIndex,
+        axis: seg.axis,
+        renderedPts: expandedPts,
+        isDragging: false,
+      };
+    },
+    [selectedWireId],
+  );
 
   // Zoom centered on cursor
   const handleWheel = (e: React.WheelEvent) => {
@@ -1028,8 +1047,11 @@ export const SimulatorCanvas = () => {
               addWireWaypoint(world.x, world.y);
               return;
             }
-            // If a wire drag just finished, don't also select
-            if (wireInteractionRef.current?.isDragging) return;
+            // If a segment handle drag just finished, don't also select
+            if (segmentDragJustCommittedRef.current) {
+              segmentDragJustCommittedRef.current = false;
+              return;
+            }
             // Wire selection via canvas-level hit detection
             const world = toWorld(e.clientX, e.clientY);
             const threshold = 8 / zoomRef.current;
@@ -1065,7 +1087,9 @@ export const SimulatorCanvas = () => {
             {/* Wire Layer - Renders below all components */}
             <WireLayer
               hoveredWireId={hoveredWireId}
-              wireDragPreview={wireDragPreview}
+              segmentDragPreview={segmentDragPreview}
+              segmentHandles={segmentHandles}
+              onHandleMouseDown={handleHandleMouseDown}
             />
 
             {/* All boards on canvas */}

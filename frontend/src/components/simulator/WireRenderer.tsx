@@ -13,6 +13,8 @@ interface WireRendererProps {
   isHovered: boolean;
   /** Temporary waypoints used during drag preview */
   previewWaypoints?: { x: number; y: number }[];
+  /** Override the full SVG path string (used during segment drag preview) */
+  overridePath?: string;
 }
 
 export const WireRenderer: React.FC<WireRendererProps> = ({
@@ -20,9 +22,10 @@ export const WireRenderer: React.FC<WireRendererProps> = ({
   isSelected,
   isHovered,
   previewWaypoints,
+  overridePath,
 }) => {
   const waypoints = previewWaypoints ?? wire.waypoints;
-  const path = generateOrthogonalPath(wire.start, waypoints, wire.end);
+  const path = overridePath ?? generateOrthogonalPath(wire.start, waypoints, wire.end);
 
   if (!path) return null;
 

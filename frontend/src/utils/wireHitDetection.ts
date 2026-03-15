@@ -145,3 +145,88 @@ export function computeDragWaypoints(
     ...originalWaypoints.slice(storedPairIndex),
   ];
 }
+
+/**
+ * Move an entire rendered segment perpendicularly.
+ * - horizontal segment → moves up/down (change Y of both endpoints)
+ * - vertical segment → moves left/right (change X of both endpoints)
+ * If the segment is the first or last, inserts connector points to keep
+ * the wire connected to its fixed start/end.
+ */
+export function moveSegment(
+  renderedPts: { x: number; y: number }[],
+  segIndex: number,
+  axis: 'horizontal' | 'vertical',
+  newValue: number,
+): { x: number; y: number }[] {
+  const n = renderedPts.length;
+  const numSegs = n - 1;
+  const pts = renderedPts.map((p) => ({ ...p }));
+
+  if (axis === 'horizontal') {
+    if (segIndex === 0 && numSegs > 0) {
+      // First segment: keep start fixed, insert connector
+      pts.splice(1, 0, { x: pts[0].x, y: newValue }, { x: pts[1].x, y: newValue });
+      pts.splice(3, 1); // remove original pts[1] copy
+    } else if (segIndex === numSegs - 1 && numSegs > 0) {
+      // Last segment: keep end fixed, insert connector
+      const last = pts[n - 1];
+      pts.splice(n - 1, 0, { x: pts[n - 2].x, y: newValue }, { x: last.x, y: newValue });
+    } else {
+      pts[segIndex].y = newValue;
+      pts[segIndex + 1].y = newValue;
+    }
+  } else {
+    // vertical
+    if (segIndex === 0 && numSegs > 0) {
+      pts.splice(1, 0, { x: newValue, y: pts[0].y }, { x: newValue, y: pts[1].y });
+      pts.splice(3, 1);
+    } else if (segIndex === numSegs - 1 && numSegs > 0) {
+      const last = pts[n - 1];
+      pts.splice(n - 1, 0, { x: newValue, y: pts[n - 2].y }, { x: newValue, y: last.y });
+    } else {
+      pts[segIndex].x = newValue;
+      pts[segIndex + 1].x = newValue;
+    }
+  }
+
+  return pts;
+}
+
+/**
+ * Convert a list of rendered (expanded) points back to wire waypoints.
+ * Waypoints are the interior corner/bend points (excludes start and end).
+ * Consecutive collinear points are collapsed so only actual corners remain.
+ */
+export function renderedToWaypoints(
+  renderedPts: { x: number; y: number }[],
+): { x: number; y: number }[] {
+  if (renderedPts.length <= 2) return [];
+
+  const waypoints: { x: number; y: number }[] = [];
+  for (let i = 1; i < renderedPts.length - 1; i++) {
+    const prev = renderedPts[i - 1];
+    const curr = renderedPts[i];
+    const next = renderedPts[i + 1];
+    const d1x = Math.sign(curr.x - prev.x);
+    const d1y = Math.sign(curr.y - prev.y);
+    const d2x = Math.sign(next.x - curr.x);
+    const d2y = Math.sign(next.y - curr.y);
+    // Keep only direction-change points (actual corners)
+    if (d1x !== d2x || d1y !== d2y) {
+      waypoints.push({ x: curr.x, y: curr.y });
+    }
+  }
+  return waypoints;
+}
+
+/**
+ * Build an SVG path string from an ordered list of rendered points (straight segments).
+ */
+export function renderedPointsToPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return '';
+  return (
+    `M ${pts[0].x} ${pts[0].y}` +
+    pts.slice(1).map((p) => ` L ${p.x} ${p.y}`).join('')
+  );
+}

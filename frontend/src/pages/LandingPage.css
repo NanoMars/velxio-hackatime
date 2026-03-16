@@ -238,13 +238,13 @@
 /* ── Hero ─────────────────────────────────────────────── */
 .landing-hero {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1.3fr;
   align-items: center;
-  gap: 64px;
-  padding: 100px 80px 100px 80px;
-  max-width: 1240px;
+  gap: 56px;
+  padding: 80px 80px 80px 80px;
+  max-width: 1400px;
   margin: 0 auto;
-  min-height: 85vh;
+  min-height: 90vh;
 }
 
 .hero-left {
@@ -387,10 +387,10 @@
 
 .hero-preview-img {
   width: 100%;
-  max-width: 560px;
+  max-width: 100%;
   height: auto;
   border-radius: var(--radius);
-  filter: drop-shadow(0 16px 48px rgba(0, 0, 0, 0.7));
+  filter: drop-shadow(0 24px 64px rgba(0, 0, 0, 0.75));
 }
 
 /* ── Sections ─────────────────────────────────────────── */
@@ -898,8 +898,9 @@
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 1024px) {
   .landing-hero {
-    gap: 48px;
-    padding: 80px 48px;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 40px;
+    padding: 72px 48px;
   }
 
   .landing-section {

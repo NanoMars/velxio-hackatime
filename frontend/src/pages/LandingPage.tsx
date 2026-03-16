@@ -410,12 +410,12 @@ const BoardEsp32C3 = () => (
 
 /* ── Features ─────────────────────────────────────────── */
 const features = [
-  { icon: <IcoCpu />,     title: 'Multi-Architecture Emulation', desc: 'AVR8 (ATmega), RP2040 (ARM), RV32IMC (ESP32-C3 browser), and Xtensa (ESP32 via QEMU) — all in one tool.' },
-  { icon: <IcoLayers />,  title: '48+ Components',               desc: 'LEDs, LCDs, TFT displays, servos, buzzers, sensors and more from wokwi-elements.' },
-  { icon: <IcoCode />,    title: 'Monaco Editor',                desc: 'VS Code-grade C++ editor with syntax highlighting, autocomplete and minimap.' },
-  { icon: <IcoZap />,     title: 'arduino-cli Backend',          desc: 'Compile sketches locally in seconds. No cloud. No latency. No limits.' },
-  { icon: <IcoMonitor />, title: 'Serial Monitor',               desc: 'Live TX/RX with auto baud-rate detection, send data and autoscroll.' },
-  { icon: <IcoBook />,    title: 'Library Manager',              desc: 'Browse and install the full Arduino library index directly from the UI.' },
+  { icon: <IcoCpu />,     title: '5 Emulation Engines',          desc: 'AVR8 (ATmega), RP2040 (ARM Cortex-M0+), RV32IMC (ESP32-C3 in-browser), Xtensa LX6/LX7 (ESP32 via QEMU), and ARM Cortex-A53 (Raspberry Pi 3 Linux).' },
+  { icon: <IcoLayers />,  title: '48+ Visual Components',        desc: 'LEDs, LCDs, ILI9341 TFT displays, servos, buzzers, ultrasonic sensors, keypads, and more from wokwi-elements.' },
+  { icon: <IcoCode />,    title: 'Monaco Editor',                desc: 'VS Code-grade C++ editor with full syntax highlighting, IntelliSense-style autocomplete, minimap, and multi-file workspace.' },
+  { icon: <IcoZap />,     title: 'Local arduino-cli Compiler',   desc: 'Compile and flash sketches locally in seconds. No cloud, no latency, no account required. Full offline support.' },
+  { icon: <IcoMonitor />, title: 'Serial Monitor',               desc: 'Real-time TX/RX with auto baud-rate detection, message history, send commands, and autoscroll.' },
+  { icon: <IcoBook />,    title: 'Library Manager',              desc: 'Search and install any library from the full Arduino library index — directly inside the editor, no terminal needed.' },
 ];
 
 /* ── Sponsor SVG icon ─────────────────────────────────── */
@@ -508,20 +508,13 @@ export const LandingPage: React.FC = () => {
       {/* Hero */}
       <section className="landing-hero">
         <div className="hero-left">
-          <div className="hero-eyebrow">
-            <span className="eyebrow-tag">OPEN SOURCE</span>
-            <span className="eyebrow-dot" />
-            <span className="eyebrow-tag">FREE</span>
-            <span className="eyebrow-dot" />
-            <span className="eyebrow-tag">LOCAL</span>
-          </div>
+          <p className="hero-eyebrow">Open Source · Free · Runs Locally</p>
           <h1 className="hero-title">
-            Arduino Simulator<br />
-            <span className="hero-accent">in your browser</span>
+            Emulate Hardware.<br />
+            <span className="hero-accent">In your browser.</span>
           </h1>
           <p className="hero-subtitle">
-            Write, compile, and simulate Arduino projects with no hardware required.
-            Real AVR8 emulation running entirely on your machine.
+            Write, compile, and simulate 17+ boards across 5 CPU architectures — no hardware, no cloud, no limits. Real emulation running entirely on your machine.
           </p>
           <div className="hero-ctas">
             <Link to="/editor" className="cta-primary">
@@ -533,34 +526,31 @@ export const LandingPage: React.FC = () => {
               View on GitHub
             </a>
           </div>
-          <div className="hero-specs">
+          <p className="hero-specs">
             <span className="spec-pill">ATmega328p</span>
-            <span className="spec-sep">/</span>
             <span className="spec-pill">RP2040</span>
-            <span className="spec-sep">/</span>
             <span className="spec-pill">RV32IMC</span>
-            <span className="spec-sep">/</span>
-            <span className="spec-pill">Xtensa LX6</span>
-            <span className="spec-sep">/</span>
+            <span className="spec-pill">Xtensa LX6/LX7</span>
+            <span className="spec-pill">ARM Cortex-A53</span>
             <span className="spec-pill">48+ components</span>
-          </div>
+          </p>
         </div>
         <div className="hero-right">
-          <CircuitSchematic />
+          <img src="/image.png" alt="Velxio simulator preview" className="hero-preview-img" />
         </div>
       </section>
 
       {/* Boards */}
       <section className="landing-section">
         <div className="section-header">
-          <span className="section-label">// boards</span>
-          <h2 className="section-title">Supported Hardware</h2>
-          <p className="section-sub">17 boards across 5 emulation engines — all running locally in your browser.</p>
+          <span className="section-label">Supported Hardware</span>
+          <h2 className="section-title">Every architecture.<br />One tool.</h2>
+          <p className="section-sub">17 boards across 5 CPU architectures — AVR, ARM, RISC-V, Xtensa, and Linux. All running locally, no cloud needed.</p>
         </div>
 
         {/* ── AVR8 · avr8js ────────────────────────────────────────── */}
         <div className="board-group">
-          <div className="board-group-header" style={{ '--grp-color': '#007acc' } as React.CSSProperties}>
+          <div className="board-group-header" style={{ '--grp-color': '#0071e3' } as React.CSSProperties}>
             <span className="board-group-engine">avr8js</span>
             <span className="board-group-label">AVR8 · ATmega · 16 MHz</span>
           </div>
@@ -596,7 +586,7 @@ export const LandingPage: React.FC = () => {
 
         {/* ── RP2040 · rp2040js ────────────────────────────────────── */}
         <div className="board-group">
-          <div className="board-group-header" style={{ '--grp-color': '#c11c31' } as React.CSSProperties}>
+          <div className="board-group-header" style={{ '--grp-color': '#a8192a' } as React.CSSProperties}>
             <span className="board-group-engine">rp2040js</span>
             <span className="board-group-label">RP2040 · Dual ARM Cortex-M0+ · 133 MHz</span>
           </div>
@@ -616,7 +606,7 @@ export const LandingPage: React.FC = () => {
 
         {/* ── RISC-V · RV32IMC · Browser ───────────────────────────── */}
         <div className="board-group">
-          <div className="board-group-header" style={{ '--grp-color': '#27ae60' } as React.CSSProperties}>
+          <div className="board-group-header" style={{ '--grp-color': '#4a9e6b' } as React.CSSProperties}>
             <span className="board-group-engine">RV32IMC · Browser</span>
             <span className="board-group-label">RISC-V · 160 MHz · no backend needed</span>
           </div>
@@ -646,7 +636,7 @@ export const LandingPage: React.FC = () => {
 
         {/* ── Xtensa LX6/LX7 · QEMU ────────────────────────────────── */}
         <div className="board-group">
-          <div className="board-group-header" style={{ '--grp-color': '#e77d11' } as React.CSSProperties}>
+          <div className="board-group-header" style={{ '--grp-color': '#c8701a' } as React.CSSProperties}>
             <span className="board-group-engine">QEMU · Xtensa</span>
             <span className="board-group-label">Xtensa LX6/LX7 · 240 MHz · backend required</span>
           </div>
@@ -688,7 +678,7 @@ export const LandingPage: React.FC = () => {
 
         {/* ── ARM · Linux · QEMU ───────────────────────────────────── */}
         <div className="board-group">
-          <div className="board-group-header" style={{ '--grp-color': '#c51a4a' } as React.CSSProperties}>
+          <div className="board-group-header" style={{ '--grp-color': '#a8304d' } as React.CSSProperties}>
             <span className="board-group-engine">QEMU · ARM</span>
             <span className="board-group-label">ARM Cortex-A53 · Linux · backend required</span>
           </div>
@@ -708,9 +698,9 @@ export const LandingPage: React.FC = () => {
       {/* Features */}
       <section className="landing-section landing-section-alt">
         <div className="section-header">
-          <span className="section-label">// features</span>
-          <h2 className="section-title">Everything you need</h2>
-          <p className="section-sub">A complete IDE and simulator, running locally with no external dependencies.</p>
+          <span className="section-label">Features</span>
+          <h2 className="section-title">Everything you need.</h2>
+          <p className="section-sub">A complete IDE, compiler, and multi-architecture simulator — running locally with no external services required.</p>
         </div>
         <div className="features-grid">
           {features.map((f) => (

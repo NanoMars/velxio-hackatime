@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import type { BoardKind } from '../../types/board';
@@ -66,6 +66,33 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const [pendingLibraries, setPendingLibraries] = useState<string[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [overflowCollapsed, setOverflowCollapsed] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowMenuRef = useRef<HTMLDivElement>(null);
+
+  // Collapse secondary buttons when toolbar is too narrow
+  useEffect(() => {
+    const el = toolbarRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      setOverflowCollapsed(entry.contentRect.width < 500);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Close overflow dropdown on outside click
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (overflowMenuRef.current && !overflowMenuRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [overflowOpen]);
 
   // Compile All state
   const [compileAllOpen, setCompileAllOpen] = useState(false);
@@ -268,7 +295,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             onClose={() => setCompileAllOpen(false)}
           />
         )}
-      <div className="editor-toolbar">
+      <div className="editor-toolbar" ref={toolbarRef}>
         {/* Active board context pill */}
         {activeBoard && (
           <div
@@ -392,7 +419,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             </span>
           )}
 
-          {/* Import Wokwi zip */}
+          {/* Hidden file input for import (always present) */}
           <input
             ref={importInputRef}
             type="file"
@@ -400,43 +427,105 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             style={{ display: 'none' }}
             onChange={handleImportFile}
           />
-          <button
-            onClick={() => importInputRef.current?.click()}
-            className="tb-btn tb-btn-lib"
-            title="Import Wokwi zip"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-          </button>
 
-          {/* Export Wokwi zip */}
-          <button
-            onClick={handleExport}
-            className="tb-btn tb-btn-lib"
-            title="Export as Wokwi zip"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-          </button>
+          {/* Secondary buttons — hidden when toolbar is narrow */}
+          {!overflowCollapsed && (
+            <>
+              {/* Import Wokwi zip */}
+              <button
+                onClick={() => importInputRef.current?.click()}
+                className="tb-btn tb-btn-lib"
+                title="Import Wokwi zip"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </button>
 
-          {/* Libraries */}
-          <button
-            onClick={() => setLibManagerOpen(true)}
-            className="tb-btn tb-btn-lib"
-            title="Library Manager"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-              <path d="m3.3 7 8.7 5 8.7-5" />
-              <path d="M12 22V12" />
-            </svg>
-          </button>
+              {/* Export Wokwi zip */}
+              <button
+                onClick={handleExport}
+                className="tb-btn tb-btn-lib"
+                title="Export as Wokwi zip"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </button>
+
+              {/* Libraries */}
+              <button
+                onClick={() => setLibManagerOpen(true)}
+                className="tb-btn tb-btn-lib"
+                title="Library Manager"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                  <path d="m3.3 7 8.7 5 8.7-5" />
+                  <path d="M12 22V12" />
+                </svg>
+              </button>
+            </>
+          )}
+
+          {/* Overflow (…) button — shown when toolbar is narrow */}
+          {overflowCollapsed && (
+            <div className="tb-overflow-wrap" ref={overflowMenuRef}>
+              <button
+                onClick={() => setOverflowOpen((v) => !v)}
+                className={`tb-btn tb-btn-overflow${overflowOpen ? ' tb-btn-overflow-active' : ''}`}
+                title="More actions"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                  <circle cx="5"  cy="12" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="19" cy="12" r="2" />
+                </svg>
+              </button>
+
+              {overflowOpen && (
+                <div className="tb-overflow-menu">
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => { importInputRef.current?.click(); setOverflowOpen(false); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Import Wokwi zip
+                  </button>
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => { handleExport(); setOverflowOpen(false); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                    Export as Wokwi zip
+                  </button>
+                  <button
+                    className="tb-overflow-item"
+                    onClick={() => { setLibManagerOpen(true); setOverflowOpen(false); }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+                      <path d="m3.3 7 8.7 5 8.7-5" />
+                      <path d="M12 22V12" />
+                    </svg>
+                    Library Manager
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="tb-divider" />
 

@@ -47,7 +47,7 @@ export const AppHeader: React.FC<AppHeaderProps> = () => {
         <div className="header-left">
           {/* Brand */}
           <div className="header-brand">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#007acc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0071e3" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <rect x="5" y="5" width="14" height="14" rx="2" />
               <rect x="9" y="9" width="6" height="6" />
               <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />

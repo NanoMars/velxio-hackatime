@@ -186,8 +186,18 @@ export function boardPinToNumber(boardId: string, pinName: string): number | nul
     return ARDUINO_MEGA_ANALOG_MAP[pinName] ?? null;
   }
 
-  if (boardId === 'nano-rp2040') {
-    return NANO_RP2040_PIN_MAP[pinName] ?? null;
+  if (boardId === 'nano-rp2040' || boardId === 'raspberry-pi-pico') {
+    // Try D-prefix map first (D2 → GPIO25 = LED_BUILTIN, etc.)
+    const mapped = NANO_RP2040_PIN_MAP[pinName];
+    if (mapped !== undefined) return mapped;
+    // Also accept GP-prefix (GP0–GP29) and bare numbers
+    if (pinName.startsWith('GP')) {
+      const n = parseInt(pinName.substring(2), 10);
+      if (!isNaN(n) && n <= 29) return n;
+    }
+    const num = parseInt(pinName, 10);
+    if (!isNaN(num) && num <= 29) return num;
+    return null;
   }
 
   // Raspberry Pi 3B — pinName is the physical pin number ("1" … "40")

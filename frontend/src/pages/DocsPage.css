@@ -1,16 +1,5 @@
-/* ── CSS Variables (match LandingPage) ─────────────────── */
+/* Variables specific to DocsPage (global tokens come from index.css) */
 :root {
-  --accent: #007acc;
-  --bg: #09090b;
-  --bg-card: #0f0f12;
-  --bg-alt: #07070a;
-  --border: #18181f;
-  --border-hi: #252530;
-  --text: #d8d8e0;
-  --text-muted: #72727e;
-  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --mono: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
-  --radius: 3px;
   --sidebar-w: 240px;
   --nav-h: 44px;
 }

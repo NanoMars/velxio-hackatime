@@ -1052,6 +1052,20 @@ const RiscVEmulationSection: React.FC = () => (
     </p>
 
     <h2>Supported Boards</h2>
+    <div className="docs-board-gallery">
+      <div className="docs-board-card">
+        <img src="/boards/esp32-c3.svg" alt="ESP32-C3 DevKit" />
+        <span>ESP32-C3 DevKit</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/xiao-esp32-c3.svg" alt="Seeed XIAO ESP32-C3" />
+        <span>Seeed XIAO ESP32-C3</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/esp32c3-supermini.svg" alt="ESP32-C3 SuperMini" />
+        <span>ESP32-C3 SuperMini</span>
+      </div>
+    </div>
     <table>
       <thead>
         <tr><th>Board</th><th>CPU</th><th>Flash</th><th>RAM</th></tr>
@@ -1170,6 +1184,28 @@ const Esp32EmulationSection: React.FC = () => (
     </ol>
 
     <h2>Supported Boards</h2>
+    <div className="docs-board-gallery">
+      <div className="docs-board-card">
+        <img src="/boards/esp32-devkit-c-v4.svg" alt="ESP32 DevKit C V4" />
+        <span>ESP32 DevKit C V4</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/esp32-s3.svg" alt="ESP32-S3" />
+        <span>ESP32-S3</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/esp32-cam.svg" alt="ESP32-CAM" />
+        <span>ESP32-CAM</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/xiao-esp32-s3.svg" alt="Seeed XIAO ESP32-S3" />
+        <span>Seeed XIAO ESP32-S3</span>
+      </div>
+      <div className="docs-board-card">
+        <img src="/boards/arduino-nano-esp32.svg" alt="Arduino Nano ESP32" />
+        <span>Arduino Nano ESP32</span>
+      </div>
+    </div>
     <table>
       <thead>
         <tr><th>Board</th><th>CPU</th><th>Emulation</th></tr>
@@ -1309,6 +1345,12 @@ const RaspberryPi3EmulationSection: React.FC = () => (
     </p>
 
     <h2>Supported Boards</h2>
+    <div className="docs-board-gallery">
+      <div className="docs-board-card">
+        <img src="/boards/Raspberry_Pi_3.svg" alt="Raspberry Pi 3B" />
+        <span>Raspberry Pi 3B</span>
+      </div>
+    </div>
     <table>
       <thead><tr><th>Board</th><th>QEMU Machine</th><th>CPU</th></tr></thead>
       <tbody>

@@ -499,11 +499,12 @@ export const SimulatorCanvas = () => {
               `[WirePin] component=${component.id} board=${otherEndpoint.componentId}` +
               ` kind=${lookupKey} pinName=${otherEndpoint.pinName} → gpioPin=${pin}`
             );
-            if (pin !== null) {
+            if (pin !== null && pin >= 0) {
               subscribeComponentToPin(component, pin, selfEndpoint.pinName);
-            } else {
+            } else if (pin === null) {
               console.warn(`[WirePin] Could not resolve pin "${otherEndpoint.pinName}" on ${lookupKey}`);
             }
+            // pin === -1 → power/GND pin, skip silently
           }
         });
       }

@@ -8,9 +8,12 @@
  * Memory model: flat Uint8Array, caller supplies base address mappings.
  * MMIO: caller installs read/write hooks at specific address ranges.
  *
+ * Machine-mode CSR support:
+ *   mstatus, mie, mtvec, mscratch, mepc, mcause, mtval, mcycle/cycle
+ *   MRET, ECALL (cause=11), external interrupt dispatch via triggerInterrupt()
+ *
  * Limitations (acceptable for educational emulation):
- * - No privilege levels / CSR side-effects (CSR reads return 0)
- * - No interrupts / exceptions (ECALL/EBREAK are no-ops)
+ * - No privilege levels below M-mode
  * - No misalignment exceptions
  * - No RV32A (atomic) or floating-point extensions
  */
@@ -32,6 +35,24 @@ export class RiscVCore {
   pc = 0x0800_0000;
   /** CPU cycle counter */
   cycles = 0;
+
+  // ── Machine-mode CSR registers ────────────────────────────────────────────
+  /** 0x300 mstatus — bit3=MIE (global enable), bit7=MPIE, bits[12:11]=MPP */
+  private mstatus  = 0;
+  /** 0x304 mie — per-source interrupt enable mask */
+  private mie      = 0;
+  /** 0x305 mtvec — trap-vector base address + mode (bit0=vectored) */
+  private mtvec    = 0;
+  /** 0x340 mscratch — scratch register (used by FreeRTOS context switch) */
+  private mscratch = 0;
+  /** 0x341 mepc — address of interrupted/excepting instruction */
+  private mepc     = 0;
+  /** 0x342 mcause — trap cause; bit31=interrupt, bits[4:0]=cause number */
+  private mcause   = 0;
+  /** 0x343 mtval — trap value (fault address / instruction bits) */
+  private mtval    = 0;
+  /** Pending async interrupt cause (bit31=1). Null when none pending. */
+  pendingInterrupt: number | null = null;
 
   private readonly mem: Uint8Array;
   private readonly memBase: number;
@@ -55,6 +76,53 @@ export class RiscVCore {
     this.regs.fill(0);
     this.pc = resetVector;
     this.cycles = 0;
+    this.mstatus  = 0;
+    this.mie      = 0;
+    this.mtvec    = 0;
+    this.mscratch = 0;
+    this.mepc     = 0;
+    this.mcause   = 0;
+    this.mtval    = 0;
+    this.pendingInterrupt = null;
+  }
+
+  /**
+   * Raise a machine-level interrupt. The cause is stored and will be taken at
+   * the next instruction boundary when mstatus.MIE (bit3) is set.
+   * Bit31=1 for asynchronous interrupts; bits[4:0] = CPU interrupt number.
+   */
+  triggerInterrupt(cause: number): void {
+    this.pendingInterrupt = cause >>> 0;
+  }
+
+  // ── CSR helpers ─────────────────────────────────────────────────────────
+
+  private readCsr(addr: number): number {
+    switch (addr) {
+      case 0x300: return this.mstatus;
+      case 0x304: return this.mie;
+      case 0x305: return this.mtvec;
+      case 0x340: return this.mscratch;
+      case 0x341: return this.mepc;
+      case 0x342: return this.mcause;
+      case 0x343: return this.mtval;
+      case 0xB00: case 0xC00: return this.cycles >>> 0;  // mcycle / cycle (low 32)
+      case 0xB80: case 0xC80: return 0;                  // mcycleh / cycleh
+      default:    return 0;
+    }
+  }
+
+  private writeCsr(addr: number, val: number): void {
+    switch (addr) {
+      case 0x300: this.mstatus  = val; break;
+      case 0x304: this.mie      = val; break;
+      case 0x305: this.mtvec    = val; break;
+      case 0x340: this.mscratch = val; break;
+      case 0x341: this.mepc     = val; break;
+      case 0x342: this.mcause   = val; break;
+      case 0x343: this.mtval    = val; break;
+      // cycle counters are read-only; ignore writes
+    }
   }
 
   // ── Memory access helpers ───────────────────────────────────────────────
@@ -309,6 +377,26 @@ export class RiscVCore {
    * for this simple model — real chips have variable latency).
    */
   step(): number {
+    // ── Interrupt check ───────────────────────────────────────────────────
+    // Take a pending interrupt if global interrupt enable (mstatus.MIE) is set.
+    if (this.pendingInterrupt !== null && (this.mstatus & 0x8)) {
+      const cause   = this.pendingInterrupt;
+      this.pendingInterrupt = null;
+      const mieOld  = (this.mstatus >> 3) & 1;          // current MIE
+      this.mstatus  = (this.mstatus & ~0x88)             // clear MPIE (bit7) and MIE (bit3)
+                    | (mieOld << 7);                     // MPIE = old MIE
+      this.mepc     = this.pc;
+      this.mcause   = cause;
+      const intNum  = cause & 0x1f;
+      // Vectored mode (mtvec[1:0]==1): PC = base + 4*intNum
+      // Direct  mode (mtvec[1:0]==0): PC = base
+      this.pc = ((this.mtvec & 3) === 1)
+        ? ((this.mtvec & ~3) >>> 0) + (intNum << 2)
+        :  (this.mtvec & ~3) >>> 0;
+      this.cycles++;
+      return 1;
+    }
+
     // RV32C: if bits [1:0] != 0b11, it's a 16-bit compressed instruction
     const half = this.readHalf(this.pc);
     let instr: number;
@@ -461,9 +549,42 @@ export class RiscVCore {
       case 0x0f:
         break;
 
-      // SYSTEM (ECALL, EBREAK, CSR* — treat as no-op)
-      case 0x73:
+      // SYSTEM — CSR instructions, MRET, ECALL, EBREAK, WFI
+      case 0x73: {
+        const funct12 = (instr >> 20) & 0xfff;
+        if (funct3 === 0) {
+          // Privileged instructions (not CSR)
+          if (funct12 === 0x302) {
+            // MRET — return from machine trap
+            const mpie  = (this.mstatus >> 7) & 1;
+            this.mstatus = (this.mstatus & ~0x8) | (mpie << 3);  // MIE = MPIE
+            this.mstatus |= (1 << 7);                              // MPIE = 1
+            nextPc = this.mepc >>> 0;
+          } else if (funct12 === 0x000) {
+            // ECALL — synchronous exception (cause=11 for M-mode)
+            // Used by FreeRTOS portYIELD to trigger a context switch.
+            const mieOld = (this.mstatus >> 3) & 1;
+            this.mstatus = (this.mstatus & ~0x88) | (mieOld << 7);
+            this.mepc   = this.pc;   // points at ecall; trap handler adds +4
+            this.mcause = 11;        // ecall from M-mode
+            nextPc = (this.mtvec & ~3) >>> 0;  // always direct for exceptions
+          }
+          // EBREAK (0x001), WFI (0x105) → no-op (advance PC normally)
+          break;
+        }
+        // CSR instructions (funct3 != 0)
+        const csrAddr = funct12;
+        const csrOld  = this.readCsr(csrAddr);
+        const isImm   = (funct3 & 4) !== 0;        // CSRRWI / CSRRSI / CSRRCI
+        const operand = isImm ? rs1 : this.reg(rs1); // zimm (5-bit) or register
+        this.setReg(rd, csrOld);
+        switch (funct3 & 3) {
+          case 1: this.writeCsr(csrAddr, operand); break;                          // CSRRW/I
+          case 2: if (operand !== 0) this.writeCsr(csrAddr, csrOld |  operand); break; // CSRRS/I
+          case 3: if (operand !== 0) this.writeCsr(csrAddr, csrOld & ~operand); break; // CSRRC/I
+        }
         break;
+      }
 
       default:
         // Unknown opcode — skip instruction to avoid infinite loop

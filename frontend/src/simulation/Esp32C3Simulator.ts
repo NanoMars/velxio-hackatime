@@ -40,9 +40,31 @@ const GPIO_W1TC   = 0x0C;   // GPIO_OUT_W1TC  — clear bits (write-only)
 const GPIO_IN     = 0x3C;   // GPIO_IN_REG    — input value (read-only)
 const GPIO_ENABLE = 0x20;   // GPIO_ENABLE_REG
 
+// ── SYSTIMER @ 0x60023000 ────────────────────────────────────────────────────
+// The SYSTIMER runs at 16 MHz (CPU_HZ / 10).  FreeRTOS programs TARGET0 to
+// fire every 1 ms (16 000 SYSTIMER ticks = 160 000 CPU cycles) and routes the
+// alarm interrupt to CPU interrupt 1 via the interrupt matrix.
+const SYSTIMER_BASE = 0x60023000;
+const SYSTIMER_SIZE = 0x100;
+// Register offsets (ESP32-C3 TRM)
+const ST_INT_ENA       = 0x04;  // TARGET0/1/2 enable bits
+const ST_INT_RAW       = 0x08;  // raw interrupt status
+const ST_INT_CLR       = 0x0C;  // write-1-to-clear
+const ST_INT_ST        = 0x10;  // masked status (RAW & ENA)
+const ST_UNIT0_OP      = 0x14;  // write bit30 to snapshot counter
+const ST_UNIT0_VAL_LO  = 0x54;  // snapshot value low 32 bits
+const ST_UNIT0_VAL_HI  = 0x58;  // snapshot value high 32 bits
+
+// ── Interrupt Controller (no-op passthrough) @ 0x600C5000 ───────────────────
+// FreeRTOS configures source→CPU-int routing here; we handle routing ourselves.
+const INTC_BASE = 0x600C5000;
+const INTC_SIZE = 0x800;
+
 // ── Clock ───────────────────────────────────────────────────────────────────
 const CPU_HZ = 160_000_000;
 const CYCLES_PER_FRAME = Math.round(CPU_HZ / 60);
+/** CPU cycles per FreeRTOS tick (1 ms at 160 MHz). */
+const CYCLES_PER_TICK  = 160_000;
 
 export class Esp32C3Simulator {
   private core: RiscVCore;
@@ -54,6 +76,10 @@ export class Esp32C3Simulator {
   private rxFifo: number[] = [];
   private gpioOut = 0;
   private gpioIn  = 0;
+
+  // SYSTIMER emulation state
+  private _stIntEna = 0;  // ST_INT_ENA register
+  private _stIntRaw = 0;  // ST_INT_RAW register (bit0 = TARGET0 fired)
 
   public pinManager: PinManager;
   public onSerialData: ((ch: string) => void) | null = null;
@@ -93,6 +119,8 @@ export class Esp32C3Simulator {
 
     this._registerUart0();
     this._registerGpio();
+    this._registerSysTimer();
+    this._registerIntCtrl();
 
     this.core.reset(IROM_BASE);
     // Initialize SP to top of DRAM — MUST be after reset() which zeroes all regs
@@ -152,11 +180,54 @@ export class Esp32C3Simulator {
             if (changed & (1 << bit)) {
               const state = !!(this.gpioOut & (1 << bit));
               this.onPinChangeWithTime?.(bit, state, timeMs);
-              this.pinManager.setPinState(bit, state);
+              this.pinManager.triggerPinChange(bit, state);
             }
           }
         }
       },
+    );
+  }
+
+  private _registerSysTimer(): void {
+    this.core.addMmio(SYSTIMER_BASE, SYSTIMER_SIZE,
+      (addr) => {
+        const off      = addr - SYSTIMER_BASE;
+        const wordOff  = off & ~3;
+        const byteIdx  = off &  3;
+        let word = 0;
+        switch (wordOff) {
+          case ST_INT_ENA:      word = this._stIntEna; break;
+          case ST_INT_RAW:      word = this._stIntRaw; break;
+          case ST_INT_ST:       word = this._stIntRaw & this._stIntEna; break;
+          case ST_UNIT0_OP:     word = (1 << 29); break;  // VALID bit always set
+          case ST_UNIT0_VAL_LO: word = (this.core.cycles / 10) >>> 0; break;
+          case ST_UNIT0_VAL_HI: word = 0; break;
+          default:              word = 0; break;
+        }
+        return (word >> (byteIdx * 8)) & 0xFF;
+      },
+      (addr, val) => {
+        const off     = addr - SYSTIMER_BASE;
+        const wordOff = off & ~3;
+        const shift   = (off & 3) * 8;
+        switch (wordOff) {
+          case ST_INT_ENA:
+            this._stIntEna = (this._stIntEna & ~(0xFF << shift)) | ((val & 0xFF) << shift);
+            break;
+          case ST_INT_CLR:
+            this._stIntRaw &= ~((val & 0xFF) << shift);
+            break;
+        }
+      },
+    );
+  }
+
+  /** Interrupt-controller MMIO — FreeRTOS writes source→CPU-int routing here.
+   *  We handle routing via direct triggerInterrupt() calls so this is a no-op. */
+  private _registerIntCtrl(): void {
+    this.core.addMmio(INTC_BASE, INTC_SIZE,
+      (_addr) => 0,
+      (_addr, _val) => {},
     );
   }
 
@@ -291,9 +362,11 @@ export class Esp32C3Simulator {
 
   reset(): void {
     this.stop();
-    this.rxFifo  = [];
-    this.gpioOut = 0;
-    this.gpioIn  = 0;
+    this.rxFifo    = [];
+    this.gpioOut   = 0;
+    this.gpioIn    = 0;
+    this._stIntEna = 0;
+    this._stIntRaw = 0;
     this.dram.fill(0);
     this.iram.fill(0);
     this.core.reset(IROM_BASE);
@@ -319,9 +392,24 @@ export class Esp32C3Simulator {
 
   private _loop(): void {
     if (!this.running) return;
-    for (let i = 0; i < CYCLES_PER_FRAME; i++) {
-      this.core.step();
+
+    // Execute in 1 ms chunks so FreeRTOS tick interrupts fire at ~1 kHz.
+    // Each chunk corresponds to one SYSTIMER TARGET0 period (160 000 CPU cycles
+    // at 160 MHz = 16 000 SYSTIMER ticks at 16 MHz).
+    let rem = CYCLES_PER_FRAME;
+    while (rem > 0) {
+      const n = rem < CYCLES_PER_TICK ? rem : CYCLES_PER_TICK;
+      for (let i = 0; i < n; i++) {
+        this.core.step();
+      }
+      rem -= n;
+
+      // Raise SYSTIMER TARGET0 alarm → CPU interrupt 1 (FreeRTOS tick).
+      // mcause = 0x80000001: bit31=interrupt, bits[4:0]=CPU interrupt number 1.
+      this._stIntRaw |= 1;
+      this.core.triggerInterrupt(0x80000001);
     }
+
     this.animFrameId = requestAnimationFrame(() => this._loop());
   }
 }

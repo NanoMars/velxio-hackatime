@@ -308,6 +308,17 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             _init_done.set()
         lib.qemu_main_loop()
 
+    # With -nographic, qemu_init registers the stdio mux chardev which reads
+    # from fd 0.  If we leave fd 0 as the JSON-command pipe from the parent,
+    # QEMU's mux will consume those bytes and forward them to UART0 RX,
+    # corrupting user-sent serial data.  Redirect fd 0 to /dev/null before
+    # qemu_init runs so the mux gets EOF and leaves our command pipe alone.
+    # Save the original pipe fd for the command loop below.
+    _orig_stdin_fd = os.dup(0)
+    _nul = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(_nul, 0)
+    os.close(_nul)
+
     qemu_t = threading.Thread(target=_qemu_thread, daemon=True, name=f'qemu-{machine}')
     qemu_t.start()
 
@@ -341,9 +352,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
 
     threading.Thread(target=_ledc_poll_thread, daemon=True, name='ledc-poll').start()
 
-    # ── 8. Command loop (main thread reads stdin) ─────────────────────────────
+    # ── 8. Command loop (main thread reads original stdin pipe) ───────────────
 
-    for raw_line in sys.stdin:
+    for raw_line in os.fdopen(_orig_stdin_fd, 'r'):
         raw_line = raw_line.strip()
         if not raw_line:
             continue

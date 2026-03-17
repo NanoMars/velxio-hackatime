@@ -134,6 +134,9 @@ const ESP32_PIN_MAP: Record<string, number> = {
   'GPIO36': 36, 'GPIO39': 39,
   // ADC aliases
   'VP': 36, 'VN': 39,
+  // Power / GND — not real GPIOs; mapped to -1 so WirePin skips silently
+  'GND': -1, 'GND1': -1, 'GND2': -1,
+  'VCC': -1, '3V3': -1, '3V3_OUT': -1, '5V': -1, 'VIN': -1, 'EN': -1,
 };
 
 /** All known board component IDs in the simulator */

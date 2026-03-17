@@ -84,6 +84,14 @@ export class PinManager {
   }
 
   /**
+   * Set a single pin state and notify listeners.
+   * Alias for triggerPinChange — used by ESP32-C3, RISC-V, and RP2040 simulators.
+   */
+  setPinState(pin: number, state: boolean): void {
+    this.triggerPinChange(pin, state);
+  }
+
+  /**
    * Directly fire pin change callbacks for a specific pin.
    * Used by RP2040Simulator which has individual GPIO listeners instead of PORT registers.
    */

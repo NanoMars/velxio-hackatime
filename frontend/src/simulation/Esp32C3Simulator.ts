@@ -60,6 +60,16 @@ const ST_UNIT0_VAL_HI  = 0x58;  // snapshot value high 32 bits
 const INTC_BASE = 0x600C5000;
 const INTC_SIZE = 0x800;
 
+// ── ESP32-C3 ROM stub @ 0x40000000 ──────────────────────────────────────────
+// ROM lives at 0x40000000-0x4001FFFF.  Without a ROM image every ROM call
+// fetches 0x0000 → CPU executes reserved C.ADDI4SPN and loops at 0x0.
+// Stub: return C.JR ra (0x8082) so any ROM call immediately returns.
+//   Little-endian: even byte = 0x82, odd byte = 0x80.
+const ROM_BASE  = 0x40000000;
+const ROM_SIZE  = 0x60000;   // 0x40000000-0x4005FFFF (first ROM + margin)
+const ROM2_BASE = 0x40800000;
+const ROM2_SIZE = 0x20000;   // 0x40800000-0x4081FFFF (second ROM region)
+
 // ── Clock ───────────────────────────────────────────────────────────────────
 const CPU_HZ = 160_000_000;
 const CYCLES_PER_FRAME = Math.round(CPU_HZ / 60);
@@ -80,6 +90,12 @@ export class Esp32C3Simulator {
   // SYSTIMER emulation state
   private _stIntEna = 0;  // ST_INT_ENA register
   private _stIntRaw = 0;  // ST_INT_RAW register (bit0 = TARGET0 fired)
+
+  // ── Diagnostic state ─────────────────────────────────────────────────────
+  private _dbgFrameCount = 0;
+  private _dbgTickCount  = 0;
+  private _dbgLastMtvec  = 0;
+  private _dbgMieEnabled = false;
 
   public pinManager: PinManager;
   public onSerialData: ((ch: string) => void) | null = null;
@@ -117,10 +133,23 @@ export class Esp32C3Simulator {
       (addr, val) => { iram[addr - IRAM_BASE] = val; },
     );
 
+    // Broad catch-all for all peripheral space must be registered FIRST (largest
+    // region) so that narrower, more specific handlers registered afterwards win
+    // via mmioFor's "smallest size wins" rule.
+    this._registerPeripheralCatchAll();
     this._registerUart0();
     this._registerGpio();
     this._registerSysTimer();
     this._registerIntCtrl();
+    this._registerRtcCntl();
+    // Timer Groups — stub RTCCALICFG1.cal_done for all known base addresses
+    // so rtc_clk_cal_internal() poll loop exits immediately.
+    this._registerTimerGroup(0x60026000);  // TIMG0 (ESP-IDF v5 / arduino-esp32 3.x)
+    this._registerTimerGroup(0x60027000);  // TIMG1
+    this._registerTimerGroup(0x6001F000);  // TIMG0 alternative (older ESP-IDF)
+    this._registerTimerGroup(0x60020000);  // TIMG1 alternative
+    this._registerRomStub();
+    this._registerRomStub2();
 
     this.core.reset(IROM_BASE);
     // Initialize SP to top of DRAM — MUST be after reset() which zeroes all regs
@@ -179,8 +208,9 @@ export class Esp32C3Simulator {
           for (let bit = 0; bit < 22; bit++) {   // ESP32-C3 has GPIO0–GPIO21
             if (changed & (1 << bit)) {
               const state = !!(this.gpioOut & (1 << bit));
+              console.log(`[ESP32-C3] GPIO${bit} → ${state ? 'HIGH' : 'LOW'} @ ${timeMs.toFixed(1)}ms`);
               this.onPinChangeWithTime?.(bit, state, timeMs);
-              this.pinManager.triggerPinChange(bit, state);
+              this.pinManager.setPinState(bit, state);
             }
           }
         }
@@ -227,6 +257,107 @@ export class Esp32C3Simulator {
   private _registerIntCtrl(): void {
     this.core.addMmio(INTC_BASE, INTC_SIZE,
       (_addr) => 0,
+      (_addr, _val) => {},
+    );
+  }
+
+  /**
+   * ROM stub — makes calls into ESP32-C3 ROM (0x40000000-0x4005FFFF) return
+   * immediately.  Without a ROM image the CPU would fetch 0x00 bytes and loop
+   * forever at address 0.  We stub every 16-bit slot with C.JR ra (0x8082)
+   * so every ROM call acts as a no-op and returns to the call site.
+   */
+  private _registerRomStub(): void {
+    this.core.addMmio(ROM_BASE, ROM_SIZE,
+      // C.JR ra = 0x8082, little-endian: even byte=0x82, odd byte=0x80
+      (addr) => (addr & 1) === 0 ? 0x82 : 0x80,
+      (_addr, _val) => {},
+    );
+  }
+
+  /** Second ROM region (0x40800000) — same stub. */
+  private _registerRomStub2(): void {
+    this.core.addMmio(ROM2_BASE, ROM2_SIZE,
+      (addr) => (addr & 1) === 0 ? 0x82 : 0x80,
+      (_addr, _val) => {},
+    );
+  }
+
+  /**
+   * Timer Group stub (TIMG0 / TIMG1).
+   *
+   * Critical register: RTCCALICFG1 at offset 0x6C (confirmed from qemu-lcgamboa
+   * esp32c3_timg.h — offset 0x48 is TIMG_WDTCONFIG0, not the calibration result).
+   *   Bit 31 = TIMG_RTC_CALI_DONE — must read as 1 or rtc_clk_cal_internal()
+   *   spins forever waiting for calibration to complete.
+   *   Bits [30:7] = cal_value — must be non-zero or the outer retry loop
+   *   in esp_rtc_clk_init() keeps calling rtc_clk_cal() forever.
+   *
+   * Called for all known TIMG0/TIMG1 base addresses across ESP-IDF versions.
+   */
+  private _registerTimerGroup(base: number): void {
+    const seen = new Set<number>();
+    this.core.addMmio(base, 0x100,
+      (addr) => {
+        const off  = addr - base;
+        const wOff = off & ~3;
+        if (!seen.has(wOff)) {
+          seen.add(wOff);
+          console.log(`[TIMG@0x${base.toString(16)}] 1st read wOff=0x${wOff.toString(16)} pc=0x${this.core.pc.toString(16)}`);
+        }
+        if (wOff === 0x68) {
+          // TIMG_RTCCALICFG: bit15=TIMG_RTC_CALI_RDY=1 — calibration instantly done
+          const word = (1 << 15); // 0x00008000
+          return (word >>> ((off & 3) * 8)) & 0xFF;
+        }
+        if (wOff === 0x6C) {
+          // TIMG_RTCCALICFG1: bits[31:7]=rtc_cali_value — non-zero so outer retry exits
+          const word = (1000000 << 7); // 0x07A12000
+          return (word >>> ((off & 3) * 8)) & 0xFF;
+        }
+        return 0;
+      },
+      (_addr, _val) => {},
+    );
+  }
+
+  /**
+   * Broad catch-all for the entire ESP32-C3 peripheral address space
+   * (0x60000000–0x6FFFFFFF).  Returns 0 for any unmapped peripheral register
+   * so that the CPU doesn't fault or log warnings for writes during init.
+   * All narrower, more specific handlers (UART0, GPIO, SYSTIMER, INTC,
+   * RTC_CNTL …) have smaller MMIO sizes and therefore take priority via
+   * mmioFor's "smallest-size-wins" rule.
+   */
+  private _registerPeripheralCatchAll(): void {
+    this.core.addMmio(0x60000000, 0x10000000,
+      () => 0,
+      (_addr, _val) => {},
+    );
+  }
+
+  /**
+   * RTC_CNTL peripheral stub (0x60008000, 4 KB).
+   *
+   * Critical register: TIME_UPDATE_REG at offset 0x70 (address 0x60008070).
+   *   Bit 30 = TIME_VALID — must read as 1 or the `rtc_clk_cal()` loop in
+   *   esp-idf never exits and MIE is never enabled (FreeRTOS scheduler stalls).
+   * Also covers the eFUSE block at 0x60008800 (offset 0x800) — returns 0 for
+   * all eFuse words (chip-revision 0 / all features disabled = safe defaults).
+   */
+  private _registerRtcCntl(): void {
+    const RTC_BASE = 0x60008000;
+    this.core.addMmio(RTC_BASE, 0x1000,
+      (addr) => {
+        const off     = addr - RTC_BASE;
+        const wordOff = off & ~3;
+        // offset 0x70 (RTC_CLK_CONF): TIME_VALID (bit 30) = 1 so rtc_clk_cal() exits.
+        // offset 0x38 (RESET_STATE): return 1 = ESP32C3_POWERON_RESET (matches QEMU).
+        const word = wordOff === 0x70 ? (1 << 30)
+                   : wordOff === 0x38 ? 1
+                   : 0;
+        return (word >>> ((off & 3) * 8)) & 0xFF;
+      },
       (_addr, _val) => {},
     );
   }
@@ -351,6 +482,11 @@ export class Esp32C3Simulator {
 
   start(): void {
     if (this.running) return;
+    this._dbgFrameCount = 0;
+    this._dbgTickCount  = 0;
+    this._dbgLastMtvec  = 0;
+    this._dbgMieEnabled = false;
+    console.log(`[ESP32-C3] Simulation started, entry=0x${this.core.pc.toString(16)}`);
     this.running = true;
     this._loop();
   }
@@ -362,11 +498,15 @@ export class Esp32C3Simulator {
 
   reset(): void {
     this.stop();
-    this.rxFifo    = [];
-    this.gpioOut   = 0;
-    this.gpioIn    = 0;
-    this._stIntEna = 0;
-    this._stIntRaw = 0;
+    this.rxFifo         = [];
+    this.gpioOut        = 0;
+    this.gpioIn         = 0;
+    this._stIntEna      = 0;
+    this._stIntRaw      = 0;
+    this._dbgFrameCount = 0;
+    this._dbgTickCount  = 0;
+    this._dbgLastMtvec  = 0;
+    this._dbgMieEnabled = false;
     this.dram.fill(0);
     this.iram.fill(0);
     this.core.reset(IROM_BASE);
@@ -393,9 +533,45 @@ export class Esp32C3Simulator {
   private _loop(): void {
     if (!this.running) return;
 
+    this._dbgFrameCount++;
+
+    // ── Per-frame diagnostics (check once, before heavy execution) ─────────
+    // Detect mtvec being set — FreeRTOS writes this during startup.
+    const mtvec = this.core.mtvecVal;
+    if (mtvec !== this._dbgLastMtvec) {
+      if (mtvec !== 0) {
+        console.log(
+          `[ESP32-C3] mtvec set → 0x${mtvec.toString(16)}` +
+          ` (mode=${mtvec & 3}) @ frame ${this._dbgFrameCount}`
+        );
+      }
+      this._dbgLastMtvec = mtvec;
+    }
+
+    // Detect MIE 0→1 transition — FreeRTOS enables this when scheduler starts.
+    const mie = (this.core.mstatusVal & 0x8) !== 0;
+    if (mie && !this._dbgMieEnabled) {
+      console.log(
+        `[ESP32-C3] MIE enabled (interrupts ON) @ frame ${this._dbgFrameCount}` +
+        `, pc=0x${this.core.pc.toString(16)}`
+      );
+      this._dbgMieEnabled = true;
+    }
+
+    // Log PC + key state every ~1 second (60 frames).
+    if (this._dbgFrameCount % 60 === 0) {
+      console.log(
+        `[ESP32-C3] frame=${this._dbgFrameCount}` +
+        ` pc=0x${this.core.pc.toString(16)}` +
+        ` cycles=${this.core.cycles}` +
+        ` ticks=${this._dbgTickCount}` +
+        ` mtvec=0x${mtvec.toString(16)}` +
+        ` MIE=${mie}` +
+        ` GPIO=0x${this.gpioOut.toString(16)}`
+      );
+    }
+
     // Execute in 1 ms chunks so FreeRTOS tick interrupts fire at ~1 kHz.
-    // Each chunk corresponds to one SYSTIMER TARGET0 period (160 000 CPU cycles
-    // at 160 MHz = 16 000 SYSTIMER ticks at 16 MHz).
     let rem = CYCLES_PER_FRAME;
     while (rem > 0) {
       const n = rem < CYCLES_PER_TICK ? rem : CYCLES_PER_TICK;
@@ -404,8 +580,47 @@ export class Esp32C3Simulator {
       }
       rem -= n;
 
+      this._dbgTickCount++;
+      // Log every 100 ticks (0.1 s) while still early in boot.
+      if (this._dbgTickCount <= 1000 && this._dbgTickCount % 100 === 0) {
+        const spc = this.core.pc;
+        let instrInfo = '';
+        const iramOff = spc - IRAM_BASE;
+        const flashOff = spc - IROM_BASE;
+        let ib0 = 0, ib1 = 0, ib2 = 0, ib3 = 0;
+        if (iramOff >= 0 && iramOff + 4 <= this.iram.length) {
+          [ib0, ib1, ib2, ib3] = [this.iram[iramOff], this.iram[iramOff+1], this.iram[iramOff+2], this.iram[iramOff+3]];
+        } else if (flashOff >= 0 && flashOff + 4 <= this.flash.length) {
+          [ib0, ib1, ib2, ib3] = [this.flash[flashOff], this.flash[flashOff+1], this.flash[flashOff+2], this.flash[flashOff+3]];
+        }
+        const instr16 = ib0 | (ib1 << 8);
+        const instr32 = ((ib0 | (ib1<<8) | (ib2<<16) | (ib3<<24)) >>> 0);
+        const isC = (instr16 & 3) !== 3;
+        const hex = isC ? instr16.toString(16).padStart(4,'0') : instr32.toString(16).padStart(8,'0');
+        if (!isC) {
+          const op = instr32 & 0x7F;
+          const f3 = (instr32 >> 12) & 7;
+          const rs1 = (instr32 >> 15) & 31;
+          if (op === 0x73) {
+            const csr = (instr32 >> 20) & 0xFFF;
+            instrInfo = ` [SYSTEM csr=0x${csr.toString(16)} f3=${f3}]`;
+          } else if (op === 0x03) {
+            const imm = (instr32 >> 20) << 0 >> 0;
+            instrInfo = ` [LOAD x${rs1}+${imm} f3=${f3}]`;
+          } else if (op === 0x63) {
+            instrInfo = ` [BRANCH f3=${f3}]`;
+          } else if (op === 0x23) {
+            instrInfo = ` [STORE f3=${f3}]`;
+          }
+        }
+        console.log(
+          `[ESP32-C3] tick #${this._dbgTickCount}` +
+          ` pc=0x${spc.toString(16)} instr=0x${hex}${instrInfo}` +
+          ` MIE=${(this.core.mstatusVal & 0x8) !== 0}`
+        );
+      }
+
       // Raise SYSTIMER TARGET0 alarm → CPU interrupt 1 (FreeRTOS tick).
-      // mcause = 0x80000001: bit31=interrupt, bits[4:0]=CPU interrupt number 1.
       this._stIntRaw |= 1;
       this.core.triggerInterrupt(0x80000001);
     }

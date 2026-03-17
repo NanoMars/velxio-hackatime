@@ -57,6 +57,8 @@ export class RiscVCore {
   private readonly mem: Uint8Array;
   private readonly memBase: number;
   private readonly mmioRegions: MmioRegion[] = [];
+  /** Word-aligned addresses of unmapped peripheral reads logged so far (dedup). */
+  private readonly _seenUnmapped = new Set<number>();
 
   /**
    * @param mem     Flat memory buffer (flash + RAM mapped contiguously)
@@ -67,9 +69,15 @@ export class RiscVCore {
     this.memBase = memBase;
   }
 
-  /** Register an MMIO region. Reads/writes in [base, base+size) go to hooks. */
+  /**
+   * Register an MMIO region. Reads/writes in [base, base+size) go to hooks.
+   * Regions are kept sorted by base address so mmioFor() can use early exit.
+   */
   addMmio(base: number, size: number, read: MmioReadHook, write: MmioWriteHook): void {
-    this.mmioRegions.push({ base, size, read, write });
+    const region = { base, size, read, write };
+    const idx = this.mmioRegions.findIndex(r => r.base > base);
+    if (idx === -1) this.mmioRegions.push(region);
+    else            this.mmioRegions.splice(idx, 0, region);
   }
 
   reset(resetVector: number): void {
@@ -84,6 +92,7 @@ export class RiscVCore {
     this.mcause   = 0;
     this.mtval    = 0;
     this.pendingInterrupt = null;
+    this._seenUnmapped.clear();
   }
 
   /**
@@ -125,13 +134,26 @@ export class RiscVCore {
     }
   }
 
+  // ── Public diagnostic accessors ─────────────────────────────────────────
+  /** Current value of mstatus (bit3=MIE, bit7=MPIE). */
+  get mstatusVal(): number { return this.mstatus; }
+  /** Current value of mtvec (trap-vector base + mode). */
+  get mtvecVal(): number { return this.mtvec; }
+
   // ── Memory access helpers ───────────────────────────────────────────────
 
   private mmioFor(addr: number): MmioRegion | null {
+    // Regions are sorted by base address; once addr < r.base no later region can match.
+    // Among all matching regions, pick the MOST SPECIFIC (smallest size) so that
+    // narrow handlers take priority over a broad catch-all region.
+    let best: MmioRegion | null = null;
     for (const r of this.mmioRegions) {
-      if (addr >= r.base && addr < r.base + r.size) return r;
+      if (addr < r.base) break;
+      if (addr < r.base + r.size) {
+        if (best === null || r.size < best.size) best = r;
+      }
     }
-    return null;
+    return best;
   }
 
   readByte(addr: number): number {
@@ -139,6 +161,16 @@ export class RiscVCore {
     if (mmio) return mmio.read(addr) & 0xff;
     const off = addr - this.memBase;
     if (off >= 0 && off < this.mem.length) return this.mem[off];
+    // Log first access to each unique unmapped peripheral word address so we
+    // can identify spin-wait targets that need a stub to return "ready".
+    const uAddr = addr >>> 0;
+    if (uAddr >= 0x60000000 && uAddr < 0x80000000) {
+      const wordAddr = uAddr & ~3;
+      if (!this._seenUnmapped.has(wordAddr)) {
+        this._seenUnmapped.add(wordAddr);
+        console.warn(`[RiscV] unmapped peripheral read @ 0x${wordAddr.toString(16)}`);
+      }
+    }
     return 0;
   }
 
@@ -397,16 +429,33 @@ export class RiscVCore {
       return 1;
     }
 
-    // RV32C: if bits [1:0] != 0b11, it's a 16-bit compressed instruction
-    const half = this.readHalf(this.pc);
+    // ── Instruction fetch ──────────────────────────────────────────────────
+    // Fast path: flat memory (IROM / flash) — avoids MMIO scan entirely.
+    const pc = this.pc;
     let instr: number;
     let instrLen: number;
-    if ((half & 0x3) !== 0x3) {
-      instr = this.decompressC(half);
-      instrLen = 2;
+    const off0 = pc - this.memBase;
+    if (off0 >= 0 && off0 + 4 <= this.mem.length) {
+      const b0 = this.mem[off0], b1 = this.mem[off0 + 1];
+      const half0 = (b0 | (b1 << 8)) & 0xffff;
+      if ((half0 & 0x3) !== 0x3) {
+        instr = this.decompressC(half0);
+        instrLen = 2;
+      } else {
+        instr = (half0 | (this.mem[off0 + 2] << 16) | (this.mem[off0 + 3] << 24)) >>> 0;
+        instrLen = 4;
+      }
     } else {
-      instr = this.readWord(this.pc);
-      instrLen = 4;
+      // Slow path: MMIO (IRAM, ROM stub, peripheral-mapped code)
+      const half = this.readHalf(pc);
+      if ((half & 0x3) !== 0x3) {
+        instr = this.decompressC(half);
+        instrLen = 2;
+      } else {
+        const upper = this.readHalf(pc + 2);
+        instr = (half | (upper << 16)) >>> 0;
+        instrLen = 4;
+      }
     }
 
     const opcode = instr & 0x7f;

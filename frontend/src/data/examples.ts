@@ -3709,23 +3709,36 @@ void loop() {
 // Wiring: DATA → GPIO4  |  VCC → 3V3  |  GND → GND
 
 #include <DHT.h>
+#include <esp_task_wdt.h>
+#include <soc/timer_group_struct.h>
+#include <soc/timer_group_reg.h>
 
 #define DHT_PIN  4    // GPIO 4
 #define DHT_TYPE DHT22
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
+// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
+void disableAllWDT() {
+  esp_task_wdt_deinit();
+  TIMERG0.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG0.wdt_config0.en = 0;
+  TIMERG0.wdt_wprotect = 0;
+  TIMERG1.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG1.wdt_config0.en = 0;
+  TIMERG1.wdt_wprotect = 0;
+}
+
 void setup() {
+  disableAllWDT();
   Serial.begin(115200);
-  // Disable watchdog — DHT pulseIn() can block in emulation
-  disableCore0WDT();
-  disableCore1WDT();
   dht.begin();
   delay(2000);
   Serial.println("ESP32 DHT22 ready!");
 }
 
 void loop() {
+  disableAllWDT();
   delay(2000);
 
   float h = dht.readHumidity();
@@ -3907,19 +3920,35 @@ void loop() {
 // Pot  : SIG → D34  |  VCC → 3V3  |  GND → GND
 
 #include <ESP32Servo.h>
+#include <esp_task_wdt.h>
+#include <soc/timer_group_struct.h>
+#include <soc/timer_group_reg.h>
 
 #define SERVO_PIN 13
 #define POT_PIN   34  // input-only GPIO (ADC)
 
 Servo myServo;
 
+// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
+void disableAllWDT() {
+  esp_task_wdt_deinit();
+  TIMERG0.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG0.wdt_config0.en = 0;
+  TIMERG0.wdt_wprotect = 0;
+  TIMERG1.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG1.wdt_config0.en = 0;
+  TIMERG1.wdt_wprotect = 0;
+}
+
 void setup() {
+  disableAllWDT();
   Serial.begin(115200);
   myServo.attach(SERVO_PIN, 500, 2400); // standard servo pulse range
   Serial.println("ESP32 Servo + Pot control");
 }
 
 void loop() {
+  disableAllWDT();  // keep WDTs disabled (FreeRTOS may re-enable)
   int raw   = analogRead(POT_PIN);         // 0–4095 (12-bit ADC)
   int angle = map(raw, 0, 4095, 0, 180);
   myServo.write(angle);
@@ -3999,22 +4028,36 @@ void loop() {
 // Wiring: DATA → GPIO3  |  VCC → 3V3  |  GND → GND
 
 #include <DHT.h>
+#include <esp_task_wdt.h>
+#include <soc/timer_group_struct.h>
+#include <soc/timer_group_reg.h>
 
 #define DHT_PIN  3    // GPIO 3
 #define DHT_TYPE DHT22
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
+// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
+void disableAllWDT() {
+  esp_task_wdt_deinit();
+  TIMERG0.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG0.wdt_config0.en = 0;
+  TIMERG0.wdt_wprotect = 0;
+  TIMERG1.wdt_wprotect = TIMG_WDT_WKEY_VALUE;
+  TIMERG1.wdt_config0.en = 0;
+  TIMERG1.wdt_wprotect = 0;
+}
+
 void setup() {
+  disableAllWDT();
   Serial.begin(115200);
-  // Disable watchdog — DHT pulseIn() can block in emulation
-  disableCore0WDT();
   dht.begin();
   delay(2000);
   Serial.println("ESP32-C3 DHT22 ready!");
 }
 
 void loop() {
+  disableAllWDT();
   delay(2000);
 
   float h = dht.readHumidity();

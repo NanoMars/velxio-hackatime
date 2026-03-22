@@ -70,8 +70,8 @@ class EspInstance:
         self._tasks:         list[asyncio.Task] = []
         self.running:        bool = False
 
-        # DHT22 sensor state: gpio_pin → {temperature, humidity, saw_low, responding}
-        self.dht22_sensors:  dict[int, dict] = {}
+        # Sensor state: gpio_pin → {type, properties..., saw_low, responding}
+        self.sensors:  dict[int, dict] = {}
 
     async def emit(self, event_type: str, data: dict) -> None:
         try:
@@ -125,32 +125,34 @@ class EspQemuManager:
         if inst and inst._gpio_writer:
             asyncio.create_task(self._send_gpio(inst, int(pin), bool(state)))
 
-    # ── DHT22 sensor API ──────────────────────────────────────────────────────
+    # ── Generic sensor API ──────────────────────────────────────────────────
 
-    def dht22_attach(self, client_id: str, pin: int,
-                     temperature: float, humidity: float) -> None:
+    def sensor_attach(self, client_id: str, sensor_type: str, pin: int,
+                      properties: dict) -> None:
         inst = self._instances.get(client_id)
         if inst:
-            inst.dht22_sensors[pin] = {
-                'temperature': temperature,
-                'humidity': humidity,
+            inst.sensors[pin] = {
+                'type': sensor_type,
+                **{k: v for k, v in properties.items()
+                   if k not in ('sensor_type', 'pin')},
                 'saw_low': False,
                 'responding': False,
             }
-            logger.info('[%s] DHT22 attached on GPIO %d (T=%.1f H=%.1f)',
-                        client_id, pin, temperature, humidity)
+            logger.info('[%s] Sensor %s attached on GPIO %d',
+                        client_id, sensor_type, pin)
 
-    def dht22_update(self, client_id: str, pin: int,
-                     temperature: float, humidity: float) -> None:
+    def sensor_update(self, client_id: str, pin: int,
+                      properties: dict) -> None:
         inst = self._instances.get(client_id)
-        if inst and pin in inst.dht22_sensors:
-            inst.dht22_sensors[pin]['temperature'] = temperature
-            inst.dht22_sensors[pin]['humidity'] = humidity
+        if inst and pin in inst.sensors:
+            for k, v in properties.items():
+                if k != 'pin':
+                    inst.sensors[pin][k] = v
 
-    def dht22_detach(self, client_id: str, pin: int) -> None:
+    def sensor_detach(self, client_id: str, pin: int) -> None:
         inst = self._instances.get(client_id)
         if inst:
-            inst.dht22_sensors.pop(pin, None)
+            inst.sensors.pop(pin, None)
 
     async def send_serial_bytes(self, client_id: str, data: bytes) -> None:
         inst = self._instances.get(client_id)
@@ -295,9 +297,9 @@ class EspQemuManager:
                 state = int(parts[2])
                 await inst.emit('gpio_change', {'pin': pin, 'state': state})
 
-                # DHT22: detect start signal (firmware drives pin LOW then HIGH)
-                sensor = inst.dht22_sensors.get(pin)
-                if sensor is not None:
+                # Sensor protocol: dispatch by sensor type
+                sensor = inst.sensors.get(pin)
+                if sensor is not None and sensor.get('type') == 'dht22':
                     if state == 0 and not sensor.get('responding', False):
                         sensor['saw_low'] = True
                     elif state == 1 and sensor.get('saw_low', False):
@@ -305,8 +307,8 @@ class EspQemuManager:
                         sensor['responding'] = True
                         asyncio.create_task(
                             self._dht22_respond(inst, pin,
-                                                sensor['temperature'],
-                                                sensor['humidity'])
+                                                sensor.get('temperature', 25.0),
+                                                sensor.get('humidity', 50.0))
                         )
             except ValueError:
                 pass
@@ -374,7 +376,7 @@ class EspQemuManager:
             logger.warning('[%s] DHT22 respond error on GPIO %d: %s',
                            inst.client_id, gpio_pin, exc)
         finally:
-            sensor = inst.dht22_sensors.get(gpio_pin)
+            sensor = inst.sensors.get(gpio_pin)
             if sensor:
                 sensor['responding'] = False
 

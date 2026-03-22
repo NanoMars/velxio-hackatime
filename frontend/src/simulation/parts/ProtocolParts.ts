@@ -458,24 +458,27 @@ PartSimulationRegistry.register('dht22', {
     const pin = getPin('SDA') ?? getPin('DATA');
     if (pin === null) return () => {};
 
-    // ESP32: delegate DHT22 protocol to the backend QEMU worker.
-    // The frontend can't provide µs-level GPIO timing over WebSocket.
-    const sim = simulator as any;
-    if (sim.isEsp32) {
-      const bridge = sim.getBridge();
-      const el = element as any;
-      const temperature = el.temperature ?? 25.0;
-      const humidity = el.humidity ?? 50.0;
-      bridge.dht22Attach(pin, temperature, humidity);
+    // Ask the simulator if it handles sensor protocols natively (e.g. ESP32
+    // delegates to backend QEMU).  If so, we only forward property updates.
+    const el = element as any;
+    const temperature = el.temperature ?? 25.0;
+    const humidity = el.humidity ?? 50.0;
 
+    const handledNatively = typeof (simulator as any).registerSensor === 'function'
+      && (simulator as any).registerSensor('dht22', pin, { temperature, humidity });
+
+    if (handledNatively) {
       registerSensorUpdate(componentId, (values) => {
         if ('temperature' in values) el.temperature = values.temperature as number;
         if ('humidity'    in values) el.humidity    = values.humidity    as number;
-        bridge.dht22Update(pin, el.temperature ?? 25.0, el.humidity ?? 50.0);
+        (simulator as any).updateSensor(pin, {
+          temperature: el.temperature ?? 25.0,
+          humidity: el.humidity ?? 50.0,
+        });
       });
 
       return () => {
-        bridge.dht22Detach(pin);
+        (simulator as any).unregisterSensor(pin);
         unregisterSensorUpdate(componentId);
       };
     }

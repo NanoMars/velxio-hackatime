@@ -14,6 +14,19 @@ import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
 import { useEditorStore } from './useEditorStore';
 import { useVfsStore } from './useVfsStore';
+import { boardPinToNumber, isBoardComponent } from '../utils/boardPinMapping';
+
+// ── Sensor pre-registration ──────────────────────────────────────────────────
+// Maps component metadataId → { sensorType, dataPinName, propertyKeys }
+// Used to pre-register sensors in the start_esp32 payload so the QEMU worker
+// has them ready before the firmware starts executing (prevents race conditions).
+const SENSOR_COMPONENT_MAP: Record<string, {
+  sensorType: string;
+  dataPinName: string;
+  propertyKeys: string[];
+}> = {
+  'dht22': { sensorType: 'dht22', dataPinName: 'SDA', propertyKeys: ['temperature', 'humidity'] },
+};
 
 // ── Legacy type aliases (keep external consumers working) ──────────────────
 export type BoardType = 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico';
@@ -50,8 +63,6 @@ class Esp32BridgeShim {
   }
 
   setPinState(pin: number, state: boolean): void { this.bridge.sendPinEvent(pin, state); }
-  getBridge(): Esp32Bridge { return this.bridge; }
-  get isEsp32(): boolean { return true; }
   getCurrentCycles(): number { return -1; }
   getClockHz(): number { return 240_000_000; }
   isRunning(): boolean { return this.bridge.connected; }
@@ -68,6 +79,20 @@ class Esp32BridgeShim {
   getSpeed(): number { return 1; }
   loadHex(_hex: string): void { /* no-op */ }
   loadBinary(_b64: string): void { /* no-op */ }
+
+  // ── Generic sensor registration (board-agnostic API) ──────────────────────
+  // ESP32 delegates sensor protocols to the backend QEMU.
+
+  registerSensor(type: string, pin: number, properties: Record<string, unknown>): boolean {
+    this.bridge.sendSensorAttach(type, pin, properties);
+    return true; // backend handles the protocol
+  }
+  updateSensor(pin: number, properties: Record<string, unknown>): void {
+    this.bridge.sendSensorUpdate(pin, properties);
+  }
+  unregisterSensor(pin: number): void {
+    this.bridge.sendSensorDetach(pin);
+  }
 }
 
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
@@ -536,7 +561,42 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       if (board.boardKind === 'raspberry-pi-3') {
         getBoardBridge(boardId)?.connect();
       } else if (isEsp32Kind(board.boardKind)) {
-        getEsp32Bridge(boardId)?.connect();
+        // Pre-register sensors connected to this board so the QEMU worker
+        // has them ready before the firmware starts executing.
+        const esp32Bridge = getEsp32Bridge(boardId);
+        if (esp32Bridge) {
+          const { components, wires } = get();
+          const sensors: Array<Record<string, unknown>> = [];
+          for (const comp of components) {
+            const sensorDef = SENSOR_COMPONENT_MAP[comp.metadataId];
+            if (!sensorDef) continue;
+            // Find the wire connecting this component's data pin to the board
+            for (const w of wires) {
+              const compEndpoint = (w.start.componentId === comp.id && w.start.pinName === sensorDef.dataPinName)
+                ? w.start : (w.end.componentId === comp.id && w.end.pinName === sensorDef.dataPinName)
+                ? w.end : null;
+              if (!compEndpoint) continue;
+              const boardEndpoint = compEndpoint === w.start ? w.end : w.start;
+              if (!isBoardComponent(boardEndpoint.componentId)) continue;
+              // Resolve GPIO pin number
+              const gpioPin = boardPinToNumber(board.boardKind, boardEndpoint.pinName);
+              if (gpioPin === null || gpioPin < 0) continue;
+              // Collect sensor properties from the component
+              const props: Record<string, unknown> = {
+                sensor_type: sensorDef.sensorType,
+                pin: gpioPin,
+              };
+              for (const key of sensorDef.propertyKeys) {
+                const val = comp.properties[key];
+                if (val !== undefined) props[key] = typeof val === 'string' ? parseFloat(val) : val;
+              }
+              sensors.push(props);
+              break; // only one data pin per sensor
+            }
+          }
+          esp32Bridge.setSensors(sensors);
+          esp32Bridge.connect();
+        }
       } else {
         getBoardSimulator(boardId)?.start();
       }
@@ -675,7 +735,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         bridge.onLedcUpdate = (update) => {
           const boardPm = pinManagerMap.get(boardId);
           if (boardPm && typeof boardPm.updatePwm === 'function') {
-            boardPm.updatePwm(update.channel, update.duty_pct);
+            const targetPin = (update.gpio !== undefined && update.gpio >= 0)
+              ? update.gpio
+              : update.channel;
+            boardPm.updatePwm(targetPin, update.duty_pct / 100);
           }
         };
         bridge.onWs2812Update = (channel, pixels) => {
@@ -768,7 +831,10 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
         bridge.onLedcUpdate = (update) => {
           const boardPm = pinManagerMap.get(boardId);
           if (boardPm && typeof boardPm.updatePwm === 'function') {
-            boardPm.updatePwm(update.channel, update.duty_pct);
+            const targetPin = (update.gpio !== undefined && update.gpio >= 0)
+              ? update.gpio
+              : update.channel;
+            boardPm.updatePwm(targetPin, update.duty_pct / 100);
           }
         };
         esp32BridgeMap.set(boardId, bridge);

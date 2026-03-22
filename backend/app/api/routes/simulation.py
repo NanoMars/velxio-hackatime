@@ -81,12 +81,13 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
             elif msg_type == 'start_esp32':
                 board        = msg_data.get('board', 'esp32')
                 firmware_b64 = msg_data.get('firmware_b64')
+                sensors      = msg_data.get('sensors', [])
                 fw_size_kb   = round(len(firmware_b64) * 0.75 / 1024) if firmware_b64 else 0
                 lib_available = _use_lib()
-                logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s',
-                            client_id, board, fw_size_kb, lib_available)
+                logger.info('[%s] start_esp32 board=%s firmware=%dKB lib_available=%s sensors=%d',
+                            client_id, board, fw_size_kb, lib_available, len(sensors))
                 if lib_available:
-                    await esp_lib_manager.start_instance(client_id, board, qemu_callback, firmware_b64)
+                    await esp_lib_manager.start_instance(client_id, board, qemu_callback, firmware_b64, sensors)
                 else:
                     logger.warning('[%s] libqemu-xtensa not available — using subprocess fallback', client_id)
                     esp_qemu_manager.start_instance(client_id, board, qemu_callback, firmware_b64)
@@ -173,31 +174,28 @@ async def simulation_websocket(websocket: WebSocket, client_id: str):
                         client_id, bytes(raw_bytes), uart_id=2
                     )
 
-            # ── ESP32 DHT22 sensor (backend-side protocol emulation) ─────
-            elif msg_type == 'esp32_dht22_attach':
+            # ── ESP32 sensor protocol offloading (generic) ────────────────
+            elif msg_type == 'esp32_sensor_attach':
+                sensor_type = msg_data.get('sensor_type', '')
                 pin = int(msg_data.get('pin', 0))
-                temperature = float(msg_data.get('temperature', 25.0))
-                humidity = float(msg_data.get('humidity', 50.0))
                 if _use_lib():
-                    esp_lib_manager.dht22_attach(client_id, pin, temperature, humidity)
+                    esp_lib_manager.sensor_attach(client_id, sensor_type, pin, msg_data)
                 else:
-                    esp_qemu_manager.dht22_attach(client_id, pin, temperature, humidity)
+                    esp_qemu_manager.sensor_attach(client_id, sensor_type, pin, msg_data)
 
-            elif msg_type == 'esp32_dht22_update':
+            elif msg_type == 'esp32_sensor_update':
                 pin = int(msg_data.get('pin', 0))
-                temperature = float(msg_data.get('temperature', 25.0))
-                humidity = float(msg_data.get('humidity', 50.0))
                 if _use_lib():
-                    esp_lib_manager.dht22_update(client_id, pin, temperature, humidity)
+                    esp_lib_manager.sensor_update(client_id, pin, msg_data)
                 else:
-                    esp_qemu_manager.dht22_update(client_id, pin, temperature, humidity)
+                    esp_qemu_manager.sensor_update(client_id, pin, msg_data)
 
-            elif msg_type == 'esp32_dht22_detach':
+            elif msg_type == 'esp32_sensor_detach':
                 pin = int(msg_data.get('pin', 0))
                 if _use_lib():
-                    esp_lib_manager.dht22_detach(client_id, pin)
+                    esp_lib_manager.sensor_detach(client_id, pin)
                 else:
-                    esp_qemu_manager.dht22_detach(client_id, pin)
+                    esp_qemu_manager.sensor_detach(client_id, pin)
 
             # ── ESP32 status query ────────────────────────────────────────
             elif msg_type == 'esp32_status':

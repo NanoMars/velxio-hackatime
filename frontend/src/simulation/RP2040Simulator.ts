@@ -490,4 +490,12 @@ export class RP2040Simulator {
       spi.completeTransmit(response);
     };
   }
+
+  // ── Generic sensor registration (board-agnostic API) ──────────────────────
+  // RP2040 handles all sensor protocols locally via schedulePinChange,
+  // so these return false / no-op — the sensor runs its own frontend logic.
+
+  registerSensor(_type: string, _pin: number, _props: Record<string, unknown>): boolean { return false; }
+  updateSensor(_pin: number, _props: Record<string, unknown>): void {}
+  unregisterSensor(_pin: number): void {}
 }

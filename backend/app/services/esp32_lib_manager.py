@@ -161,6 +161,7 @@ class EspLibManager:
         board_type:   str,
         callback:     EventCallback,
         firmware_b64: str | None = None,
+        sensors:      list | None = None,
     ) -> None:
         # Stop any existing instance for this client_id first
         if client_id in self._instances:
@@ -177,6 +178,7 @@ class EspLibManager:
             'lib_path':     lib_path,
             'firmware_b64': firmware_b64,
             'machine':      machine,
+            'sensors':      sensors or [],
         })
 
         logger.info('Launching esp32_worker for %s (machine=%s, script=%s, python=%s)',
@@ -343,30 +345,37 @@ class EspLibManager:
         if inst and inst.running and inst.process.returncode is None:
             self._write_cmd(inst, {'cmd': 'set_spi_response', 'response': response_byte & 0xFF})
 
-    # ── DHT22 sensor (backend-side protocol emulation) ─────────────────────
+    # ── Generic sensor protocol offloading ──────────────────────────────────
 
-    def dht22_attach(self, client_id: str, pin: int, temperature: float, humidity: float) -> None:
-        """Register a DHT22 sensor on a GPIO pin — the worker handles the protocol."""
+    def sensor_attach(self, client_id: str, sensor_type: str, pin: int,
+                      properties: dict) -> None:
+        """Register a sensor on a GPIO pin — the worker handles its protocol."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:
-            self._write_cmd(inst, {'cmd': 'dht22_attach', 'pin': pin,
-                                   'temperature': temperature, 'humidity': humidity})
+            self._write_cmd(inst, {
+                'cmd': 'sensor_attach', 'sensor_type': sensor_type,
+                'pin': pin, **{k: v for k, v in properties.items()
+                               if k not in ('sensor_type', 'pin')},
+            })
 
-    def dht22_update(self, client_id: str, pin: int, temperature: float, humidity: float) -> None:
-        """Update a DHT22 sensor's temperature and humidity values."""
+    def sensor_update(self, client_id: str, pin: int,
+                      properties: dict) -> None:
+        """Update a sensor's properties (temperature, humidity, distance…)."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:
-            self._write_cmd(inst, {'cmd': 'dht22_update', 'pin': pin,
-                                   'temperature': temperature, 'humidity': humidity})
+            self._write_cmd(inst, {
+                'cmd': 'sensor_update', 'pin': pin,
+                **{k: v for k, v in properties.items() if k != 'pin'},
+            })
 
-    def dht22_detach(self, client_id: str, pin: int) -> None:
-        """Remove a DHT22 sensor from a GPIO pin."""
+    def sensor_detach(self, client_id: str, pin: int) -> None:
+        """Remove a sensor from a GPIO pin."""
         with self._instances_lock:
             inst = self._instances.get(client_id)
         if inst and inst.running and inst.process.returncode is None:
-            self._write_cmd(inst, {'cmd': 'dht22_detach', 'pin': pin})
+            self._write_cmd(inst, {'cmd': 'sensor_detach', 'pin': pin})
 
     # ── LEDC polling (no-op: worker polls automatically) ─────────────────────
 

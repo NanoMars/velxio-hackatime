@@ -174,9 +174,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         _log(f'Bad config JSON: {exc}')
         os._exit(1)
 
-    lib_path     = cfg['lib_path']
-    firmware_b64 = cfg['firmware_b64']
-    machine      = cfg.get('machine', 'esp32-picsimlab')
+    lib_path       = cfg['lib_path']
+    firmware_b64   = cfg['firmware_b64']
+    machine        = cfg.get('machine', 'esp32-picsimlab')
+    initial_sensors = cfg.get('sensors', [])
 
     # Adjust GPIO pinmap based on chip: ESP32-C3 has only 22 GPIOs
     if 'c3' in machine:
@@ -217,6 +218,7 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     # ── 4. Shared mutable state ───────────────────────────────────────────────
     _stopped       = threading.Event()      # set on "stop" command
     _init_done     = threading.Event()      # set when qemu_init() returns
+    _sensors_ready = threading.Event()      # set after pre-registering initial sensors
     _i2c_responses: dict[int, int] = {}     # 7-bit addr → response byte
     _spi_response   = [0xFF]                # MISO byte for SPI transfers
     _rmt_decoders:  dict[int, _RmtDecoder] = {}
@@ -229,9 +231,9 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     # ESP32 signal indices: 72-79 = LEDC HS ch 0-7, 80-87 = LEDC LS ch 0-7
     _ledc_gpio_map: dict[int, int] = {}
 
-    # DHT22 sensor state: gpio_pin → {temperature, humidity, saw_low, responding}
-    _dht22_sensors: dict[int, dict] = {}
-    _dht22_lock = threading.Lock()
+    # Sensor state: gpio_pin → {type, properties..., saw_low, responding}
+    _sensors: dict[int, dict] = {}
+    _sensors_lock = threading.Lock()
 
     def _busy_wait_us(us: int) -> None:
         """Busy-wait for the given number of microseconds using perf_counter_ns."""
@@ -280,8 +282,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         except Exception as exc:
             _log(f'DHT22 respond error on GPIO {gpio_pin}: {exc}')
         finally:
-            with _dht22_lock:
-                sensor = _dht22_sensors.get(gpio_pin)
+            with _sensors_lock:
+                sensor = _sensors.get(gpio_pin)
                 if sensor:
                     sensor['responding'] = False
 
@@ -293,10 +295,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         gpio = int(_PINMAP[slot]) if 1 <= slot <= _GPIO_COUNT else slot
         _emit({'type': 'gpio_change', 'pin': gpio, 'state': value})
 
-        # DHT22: detect start signal (firmware drives pin LOW then HIGH)
-        with _dht22_lock:
-            sensor = _dht22_sensors.get(gpio)
-        if sensor is not None:
+        # Sensor protocol dispatch by type
+        with _sensors_lock:
+            sensor = _sensors.get(gpio)
+        if sensor is not None and sensor.get('type') == 'dht22':
             if value == 0 and not sensor.get('responding', False):
                 sensor['saw_low'] = True
             elif value == 1 and sensor.get('saw_low', False):
@@ -304,7 +306,8 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
                 sensor['responding'] = True
                 threading.Thread(
                     target=_dht22_respond,
-                    args=(gpio, sensor['temperature'], sensor['humidity']),
+                    args=(gpio, sensor.get('temperature', 25.0),
+                          sensor.get('humidity', 50.0)),
                     daemon=True,
                     name=f'dht22-gpio{gpio}',
                 ).start()
@@ -395,6 +398,10 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
             _emit({'type': 'error', 'message': f'qemu_init failed: {exc}'})
         finally:
             _init_done.set()
+        # Wait for initial sensors to be pre-registered before executing firmware.
+        # This prevents race conditions where the firmware tries to read a sensor
+        # (e.g. DHT22 pulseIn) before the sensor handler is registered.
+        _sensors_ready.wait(timeout=5.0)
         lib.qemu_main_loop()
 
     # With -nographic, qemu_init registers the stdio mux chardev which reads
@@ -414,6 +421,20 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
     if not _init_done.wait(timeout=30.0):
         _emit({'type': 'error', 'message': 'qemu_init timed out after 30 s'})
         os._exit(1)
+
+    # Pre-register initial sensors before letting QEMU execute firmware.
+    for s in initial_sensors:
+        gpio = int(s.get('pin', 0))
+        sensor_type = s.get('sensor_type', '')
+        with _sensors_lock:
+            _sensors[gpio] = {
+                'type': sensor_type,
+                **{k: v for k, v in s.items() if k not in ('sensor_type', 'pin')},
+                'saw_low': False,
+                'responding': False,
+            }
+        _log(f'Pre-registered sensor {sensor_type} on GPIO {gpio}')
+    _sensors_ready.set()
 
     _emit({'type': 'system', 'event': 'booted'})
     _log(f'QEMU started: machine={machine} firmware={firmware_path}')
@@ -477,32 +498,33 @@ def main() -> None:  # noqa: C901  (complexity OK for inline worker)
         elif c == 'set_spi_response':
             _spi_response[0] = int(cmd['response']) & 0xFF
 
-        elif c == 'dht22_attach':
+        elif c == 'sensor_attach':
             gpio = int(cmd['pin'])
-            with _dht22_lock:
-                _dht22_sensors[gpio] = {
-                    'temperature': float(cmd.get('temperature', 25.0)),
-                    'humidity': float(cmd.get('humidity', 50.0)),
+            sensor_type = cmd.get('sensor_type', '')
+            with _sensors_lock:
+                _sensors[gpio] = {
+                    'type': sensor_type,
+                    **{k: v for k, v in cmd.items()
+                       if k not in ('cmd', 'pin', 'sensor_type')},
                     'saw_low': False,
                     'responding': False,
                 }
-            _log(f'DHT22 attached on GPIO {gpio}')
+            _log(f'Sensor {sensor_type} attached on GPIO {gpio}')
 
-        elif c == 'dht22_update':
+        elif c == 'sensor_update':
             gpio = int(cmd['pin'])
-            with _dht22_lock:
-                sensor = _dht22_sensors.get(gpio)
+            with _sensors_lock:
+                sensor = _sensors.get(gpio)
                 if sensor:
-                    if 'temperature' in cmd:
-                        sensor['temperature'] = float(cmd['temperature'])
-                    if 'humidity' in cmd:
-                        sensor['humidity'] = float(cmd['humidity'])
+                    for k, v in cmd.items():
+                        if k not in ('cmd', 'pin'):
+                            sensor[k] = v
 
-        elif c == 'dht22_detach':
+        elif c == 'sensor_detach':
             gpio = int(cmd['pin'])
-            with _dht22_lock:
-                _dht22_sensors.pop(gpio, None)
-            _log(f'DHT22 detached from GPIO {gpio}')
+            with _sensors_lock:
+                _sensors.pop(gpio, None)
+            _log(f'Sensor detached from GPIO {gpio}')
 
         elif c == 'stop':
             _stopped.set()

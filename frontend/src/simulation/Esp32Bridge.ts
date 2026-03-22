@@ -14,6 +14,9 @@
  *     { type: 'esp32_adc_set',      data: { channel: number, millivolts: number } }
  *     { type: 'esp32_i2c_response', data: { addr: number, response: number } }
  *     { type: 'esp32_spi_response', data: { response: number } }
+ *     { type: 'esp32_sensor_attach', data: { sensor_type: string, pin: number, ... } }
+ *     { type: 'esp32_sensor_update', data: { pin: number, ... } }
+ *     { type: 'esp32_sensor_detach', data: { pin: number } }
  *
  *   Backend → Frontend
  *     { type: 'serial_output', data: { data: string, uart?: number } }
@@ -77,6 +80,7 @@ export class Esp32Bridge {
   private socket: WebSocket | null = null;
   private _connected = false;
   private _pendingFirmware: string | null = null;
+  private _pendingSensors: Array<Record<string, unknown>> = [];
 
   constructor(boardId: string, boardKind: BoardKind) {
     this.boardId   = boardId;
@@ -108,6 +112,7 @@ export class Esp32Bridge {
         data: {
           board: toQemuBoardType(this.boardKind),
           ...(this._pendingFirmware ? { firmware_b64: this._pendingFirmware } : {}),
+          sensors: this._pendingSensors,
         },
       });
     };
@@ -203,6 +208,16 @@ export class Esp32Bridge {
   }
 
   /**
+   * Pre-register sensors so they are included in the start_esp32 payload.
+   * This ensures sensors are ready in the QEMU worker BEFORE the firmware
+   * begins executing, preventing race conditions where pulseIn() times out
+   * because the sensor handler hasn't been registered yet.
+   */
+  setSensors(sensors: Array<Record<string, unknown>>): void {
+    this._pendingSensors = sensors;
+  }
+
+  /**
    * Load a compiled firmware (base64-encoded .bin) into the running ESP32.
    * If not yet connected, the firmware will be sent on next connect().
    */
@@ -244,19 +259,25 @@ export class Esp32Bridge {
     this._send({ type: 'esp32_spi_response', data: { response } });
   }
 
-  /** Attach a DHT22 sensor to a GPIO pin — backend will handle the protocol */
-  dht22Attach(pin: number, temperature: number, humidity: number): void {
-    this._send({ type: 'esp32_dht22_attach', data: { pin, temperature, humidity } });
+  // ── Generic sensor protocol offloading ────────────────────────────────────
+  // Sensors call these to delegate their protocol to the backend QEMU.
+  // The sensor type (e.g. 'dht22', 'hc-sr04') tells the backend which
+  // protocol handler to use.  Sensor-specific properties (temperature,
+  // humidity, distance …) are passed as a generic Record.
+
+  /** Register a sensor on a GPIO pin — backend handles its protocol */
+  sendSensorAttach(sensorType: string, pin: number, properties: Record<string, unknown>): void {
+    this._send({ type: 'esp32_sensor_attach', data: { sensor_type: sensorType, pin, ...properties } });
   }
 
-  /** Update DHT22 sensor readings */
-  dht22Update(pin: number, temperature: number, humidity: number): void {
-    this._send({ type: 'esp32_dht22_update', data: { pin, temperature, humidity } });
+  /** Update sensor properties (temperature, humidity, distance, etc.) */
+  sendSensorUpdate(pin: number, properties: Record<string, unknown>): void {
+    this._send({ type: 'esp32_sensor_update', data: { pin, ...properties } });
   }
 
-  /** Detach the DHT22 sensor from a GPIO pin */
-  dht22Detach(pin: number): void {
-    this._send({ type: 'esp32_dht22_detach', data: { pin } });
+  /** Detach a sensor from a GPIO pin */
+  sendSensorDetach(pin: number): void {
+    this._send({ type: 'esp32_sensor_detach', data: { pin } });
   }
 
   private _send(payload: unknown): void {

@@ -316,6 +316,26 @@ PartSimulationRegistry.register('servo', {
             return () => { avrSimulator.onPinChangeWithTime = null; };
         }
 
+        // ── ESP32 path: subscribe to LEDC PWM duty updates via PinManager ──
+        // Esp32BridgeShim has pinManager but getCurrentCycles() returns -1
+        // (no local CPU cycle counter — QEMU runs on the backend).
+        if (pinSIG !== null && !(avrSimulator instanceof RP2040Simulator)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const pinManager = (avrSimulator as any).pinManager as import('../PinManager').PinManager | undefined;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const hasCpuCycles = typeof (avrSimulator as any).getCurrentCycles === 'function'
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                && (avrSimulator as any).getCurrentCycles() >= 0;
+
+            if (pinManager && !hasCpuCycles) {
+                const unsubscribe = pinManager.onPwmChange(pinSIG, (_pin, dutyCycle) => {
+                    const angle = Math.round(dutyCycle * 180);
+                    el.angle = Math.max(0, Math.min(180, angle));
+                });
+                return () => { unsubscribe(); };
+            }
+        }
+
         // ── AVR primary: cycle-accurate pulse width measurement ────────────
         if (pinSIG !== null) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any

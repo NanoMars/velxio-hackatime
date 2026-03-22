@@ -35,8 +35,41 @@ export const BOARD_LABELS: Record<BoardType, string> = {
 export const DEFAULT_BOARD_POSITION = { x: 50, y: 50 };
 export const ARDUINO_POSITION = DEFAULT_BOARD_POSITION;
 
+// ── Lightweight shim wrapping Esp32Bridge so component simulations (DHT22, etc.)
+// can call setPinState / pinManager just like they would on a local simulator. ──
+class Esp32BridgeShim {
+  pinManager: PinManager;
+  onSerialData: ((ch: string) => void) | null = null;
+  onPinChangeWithTime: ((pin: number, state: boolean, timeMs: number) => void) | null = null;
+  onBaudRateChange: ((baud: number) => void) | null = null;
+  private bridge: Esp32Bridge;
+
+  constructor(bridge: Esp32Bridge, pm: PinManager) {
+    this.bridge = bridge;
+    this.pinManager = pm;
+  }
+
+  setPinState(pin: number, state: boolean): void { this.bridge.sendPinEvent(pin, state); }
+  getCurrentCycles(): number { return -1; }
+  getClockHz(): number { return 240_000_000; }
+  isRunning(): boolean { return this.bridge.connected; }
+  serialWrite(text: string): void {
+    this.bridge.sendSerialBytes(Array.from(new TextEncoder().encode(text)));
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getADC(): any { return null; }
+  getMCU(): null { return null; }
+  start(): void { /* managed by bridge */ }
+  stop(): void { /* managed by bridge */ }
+  reset(): void { /* managed by bridge */ }
+  setSpeed(_s: number): void { /* no-op */ }
+  getSpeed(): number { return 1; }
+  loadHex(_hex: string): void { /* no-op */ }
+  loadBinary(_b64: string): void { /* no-op */ }
+}
+
 // ── Runtime Maps (outside Zustand — not serialisable) ─────────────────────
-const simulatorMap = new Map<string, AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator>();
+const simulatorMap = new Map<string, AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | Esp32BridgeShim>();
 const pinManagerMap = new Map<string, PinManager>();
 const bridgeMap = new Map<string, RaspberryPi3Bridge>();
 const esp32BridgeMap = new Map<string, Esp32Bridge>();
@@ -97,7 +130,7 @@ interface SimulatorState {
   /** @deprecated use boards[x].x/y */
   boardPosition: { x: number; y: number };
   /** @deprecated use getBoardSimulator(activeBoardId) */
-  simulator: AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | null;
+  simulator: AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | Esp32BridgeShim | null;
   /** @deprecated use getBoardPinManager(activeBoardId) */
   pinManager: PinManager;
   running: boolean;
@@ -337,6 +370,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           }
         };
         esp32BridgeMap.set(id, bridge);
+        // Provide a shim so PartSimulationRegistry components (DHT22, etc.)
+        // can call setPinState / access pinManager on ESP32 boards.
+        const shim = new Esp32BridgeShim(bridge, pm);
+        shim.onSerialData = serialCallback;
+        simulatorMap.set(id, shim);
       } else {
         const sim = createSimulator(
           boardKind,
@@ -645,10 +683,13 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           }
         };
         esp32BridgeMap.set(boardId, bridge);
+        const shim = new Esp32BridgeShim(bridge, pm);
+        shim.onSerialData = serialCallback;
+        simulatorMap.set(boardId, shim);
 
         set((s) => ({
           boardType: type,
-          simulator: null,
+          simulator: shim as any,
           compiledHex: null,
           serialOutput: '',
           serialBaudRate: 0,

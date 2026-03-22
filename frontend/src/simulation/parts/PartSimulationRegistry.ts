@@ -1,7 +1,14 @@
 import { AVRSimulator } from '../AVRSimulator';
 import { RP2040Simulator } from '../RP2040Simulator';
 
-export type AnySimulator = AVRSimulator | RP2040Simulator;
+/** Any simulator that components can interact with (AVR, RP2040, or ESP32 bridge shim). */
+export type AnySimulator = {
+  setPinState(pin: number, state: boolean): void;
+  isRunning(): boolean;
+  pinManager: import('../PinManager').PinManager;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+} | AVRSimulator | RP2040Simulator;
 
 /**
  * Interface for simulation logic mapped to a specific wokwi-element

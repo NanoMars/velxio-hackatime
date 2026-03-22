@@ -132,6 +132,13 @@ const ESP32_PIN_MAP: Record<string, number> = {
   'GPIO25': 25, 'GPIO26': 26, 'GPIO27': 27,
   'GPIO32': 32, 'GPIO33': 33, 'GPIO34': 34, 'GPIO35': 35,
   'GPIO36': 36, 'GPIO39': 39,
+  // Wokwi element "D" prefix aliases (esp32-devkit-v1-element pin names)
+  'D2': 2, 'D4': 4, 'D5': 5,
+  'D12': 12, 'D13': 13, 'D14': 14, 'D15': 15,
+  'D16': 16, 'D17': 17, 'D18': 18, 'D19': 19,
+  'D21': 21, 'D22': 22, 'D23': 23,
+  'D25': 25, 'D26': 26, 'D27': 27,
+  'D32': 32, 'D33': 33, 'D34': 34, 'D35': 35,
   // ADC aliases
   'VP': 36, 'VN': 39,
   // Power / GND — not real GPIOs; mapped to -1 so WirePin skips silently

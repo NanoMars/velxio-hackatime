@@ -450,11 +450,13 @@ export const LandingPage: React.FC = () => {
       <section className="landing-hero">
         <div className="hero-left">
           <h1 className="hero-title">
-            Emulate Hardware.<br />
-            <span className="hero-accent">In your browser.</span>
+            Simulate Arduino,<br />
+            ESP32 &amp; Raspberry Pi.<br />
+            <span className="hero-accent">And 16 more boards in your browser..</span>
           </h1>
           <p className="hero-subtitle">
-            Write, compile, and simulate 17+ boards across 5 CPU architectures — no hardware, no cloud, no limits. Real emulation running entirely on your machine.
+            Write code, compile, and run on 19 real boards — Arduino Uno, ESP32, ESP32-C3,
+            Raspberry Pi Pico, Raspberry Pi 3, and more. No hardware, no cloud, no limits.
           </p>
           <div className="hero-ctas">
             <Link to="/editor" className="cta-primary">
@@ -479,7 +481,7 @@ export const LandingPage: React.FC = () => {
         <div className="section-header">
           <span className="section-label">Supported Hardware</span>
           <h2 className="section-title">Every architecture.<br />One tool.</h2>
-          <p className="section-sub">17 boards across 5 CPU architectures — AVR, ARM, RISC-V, Xtensa, and Linux. All running locally, no cloud needed.</p>
+          <p className="section-sub">19 boards across 5 CPU architectures — AVR8, ARM Cortex-M0+, RISC-V, Xtensa, and Linux. All running locally, no cloud needed.</p>
         </div>
 
         {/* ── AVR8 · avr8js ────────────────────────────────────────── */}

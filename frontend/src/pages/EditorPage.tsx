@@ -20,6 +20,7 @@ import { Oscilloscope } from '../components/simulator/Oscilloscope';
 import { AppHeader } from '../components/layout/AppHeader';
 import { SaveProjectModal } from '../components/layout/SaveProjectModal';
 import { LoginPromptModal } from '../components/layout/LoginPromptModal';
+import { GitHubStarBanner } from '../components/layout/GitHubStarBanner';
 import { useSimulatorStore } from '../store/useSimulatorStore';
 import { useOscilloscopeStore } from '../store/useOscilloscopeStore';
 import { useAuthStore } from '../store/useAuthStore';
@@ -68,6 +69,46 @@ export const EditorPage: React.FC = () => {
   const [bottomPanelHeight, setBottomPanelHeight] = useState(BOTTOM_PANEL_DEFAULT);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [loginPromptOpen, setLoginPromptOpen] = useState(false);
+  const [showStarBanner, setShowStarBanner] = useState(false);
+
+  // ── GitHub star prompt (show once: 2nd visit OR after 3 min) ──────────────
+  useEffect(() => {
+    const STAR_KEY = 'velxio_star_prompted';
+    const VISITS_KEY = 'velxio_editor_visits';
+    const FIRST_VISIT_KEY = 'velxio_editor_first_visit';
+    const THREE_MIN = 3 * 60 * 1000;
+
+    if (localStorage.getItem(STAR_KEY)) return;
+
+    // Increment visit counter
+    const visits = parseInt(localStorage.getItem(VISITS_KEY) ?? '0', 10) + 1;
+    localStorage.setItem(VISITS_KEY, String(visits));
+
+    // Record timestamp of first visit
+    if (!localStorage.getItem(FIRST_VISIT_KEY)) {
+      localStorage.setItem(FIRST_VISIT_KEY, String(Date.now()));
+    }
+    const firstVisit = parseInt(localStorage.getItem(FIRST_VISIT_KEY)!, 10);
+
+    // Show immediately on second+ visit
+    if (visits >= 2) {
+      setShowStarBanner(true);
+      return;
+    }
+
+    // Otherwise schedule after the 3-minute mark
+    const elapsed = Date.now() - firstVisit;
+    const delay = Math.max(0, THREE_MIN - elapsed);
+    const timer = setTimeout(() => {
+      if (!localStorage.getItem(STAR_KEY)) setShowStarBanner(true);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleDismissStarBanner = () => {
+    localStorage.setItem('velxio_star_prompted', '1');
+    setShowStarBanner(false);
+  };
   const [explorerOpen, setExplorerOpen] = useState(true);
   const [explorerWidth, setExplorerWidth] = useState(EXPLORER_DEFAULT);
   const [isMobile, setIsMobile] = useState(() => window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT}px)`).matches);
@@ -348,6 +389,7 @@ export const EditorPage: React.FC = () => {
 
       {saveModalOpen && <SaveProjectModal onClose={() => setSaveModalOpen(false)} />}
       {loginPromptOpen && <LoginPromptModal onClose={() => setLoginPromptOpen(false)} />}
+      {showStarBanner && <GitHubStarBanner onClose={handleDismissStarBanner} />}
     </div>
   );
 };

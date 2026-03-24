@@ -1,21 +1,22 @@
 #!/bin/bash
 set -e
 
-# If the arduino-cli volume is empty (first deploy or after prune),
-# re-install the base cores. This is fast (~30s) since package index is cached.
+# Ensure arduino-cli config and board manager URLs are set up
 if [ ! -f /root/.arduino15/arduino-cli.yaml ]; then
-    echo "📦 Installing arduino-cli base cores into volume..."
+    echo "📦 Initializing arduino-cli config..."
     arduino-cli config init 2>/dev/null || true
     arduino-cli config add board_manager.additional_urls \
         https://github.com/earlephilhower/arduino-pico/releases/download/global/package_rp2040_index.json 2>/dev/null || true
     arduino-cli config add board_manager.additional_urls \
         https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json 2>/dev/null || true
-    arduino-cli core update-index
-    arduino-cli core install arduino:avr
-    arduino-cli core install rp2040:rp2040
-    arduino-cli core install esp32:esp32
-    echo "✅ Base cores installed"
 fi
+
+# Install missing cores. arduino-cli core install is a no-op if already present.
+# ESP32 core MUST be 2.0.17 (IDF 4.4.x) — newer 3.x is incompatible with QEMU ROM bins.
+arduino-cli core update-index 2>/dev/null || true
+arduino-cli core install arduino:avr 2>/dev/null || true
+arduino-cli core install rp2040:rp2040 2>/dev/null || true
+arduino-cli core install esp32:esp32@2.0.17 2>/dev/null || true
 
 # Start FastAPI backend in the background on port 8001
 echo "🚀 Starting Velxio Backend..."

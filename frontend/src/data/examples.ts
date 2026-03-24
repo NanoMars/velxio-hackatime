@@ -3727,7 +3727,6 @@ void loop() {
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
-// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
 
 void setup() {
   Serial.begin(115200);
@@ -3931,7 +3930,6 @@ void loop() {
 
 Servo myServo;
 
-// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
 
 void setup() {
   Serial.begin(115200);
@@ -4028,7 +4026,6 @@ void loop() {
 
 DHT dht(DHT_PIN, DHT_TYPE);
 
-// Disable hardware Timer Group WDTs (QEMU emulation is slower than real time)
 
 void setup() {
   Serial.begin(115200);

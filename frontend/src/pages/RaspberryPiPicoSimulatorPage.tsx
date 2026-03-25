@@ -7,8 +7,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import piPicoSvgUrl from '../../../wokwi-libs/wokwi-boards/boards/pi-pico/board.svg?url';
 import './SEOPage.css';
+
+const META = getSeoMeta('/raspberry-pi-pico-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -37,12 +40,11 @@ const JSON_LD: object[] = [
   {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
-    name: 'Velxio — Free Raspberry Pi Pico & RP2040 Simulator',
+    name: META.title.split(' | ')[0],
     applicationCategory: 'DeveloperApplication',
     operatingSystem: 'Any (browser-based)',
-    description:
-      'Free online Raspberry Pi Pico simulator with real RP2040 ARM Cortex-M0+ emulation at 133 MHz. Simulate Arduino code for Pico and Pico W with 48+ components — no hardware needed.',
-    url: 'https://velxio.dev/raspberry-pi-pico-simulator',
+    description: META.description,
+    url: META.url,
     offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
     author: { '@type': 'Person', name: 'David Montero Crespo' },
   },
@@ -60,19 +62,13 @@ const JSON_LD: object[] = [
     '@type': 'BreadcrumbList',
     itemListElement: [
       { '@type': 'ListItem', position: 1, name: 'Velxio', item: 'https://velxio.dev/' },
-      { '@type': 'ListItem', position: 2, name: 'Raspberry Pi Pico Simulator', item: 'https://velxio.dev/raspberry-pi-pico-simulator' },
+      { '@type': 'ListItem', position: 2, name: 'Raspberry Pi Pico Simulator', item: META.url },
     ],
   },
 ];
 
 export const RaspberryPiPicoSimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Free Raspberry Pi Pico Simulator — RP2040 ARM Cortex-M0+ Emulation | Velxio',
-    description:
-      'Simulate Raspberry Pi Pico and Pico W code for free. Real RP2040 ARM Cortex-M0+ emulation at 133 MHz via rp2040js. 48+ components, Serial Monitor, Arduino-Pico core. No install.',
-    url: 'https://velxio.dev/raspberry-pi-pico-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

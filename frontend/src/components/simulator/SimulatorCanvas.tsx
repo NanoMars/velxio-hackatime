@@ -170,6 +170,15 @@ export const SimulatorCanvas = () => {
   const pinchStartMidRef = useRef({ x: 0, y: 0 });
   const pinchStartPanRef = useRef({ x: 0, y: 0 });
 
+  // Refs for touch-based wire creation, selection, and interactive passthrough
+  const wireInProgressRef = useRef(wireInProgress);
+  wireInProgressRef.current = wireInProgress;
+  const selectedWireIdRef = useRef(selectedWireId);
+  selectedWireIdRef.current = selectedWireId;
+  const touchPassthroughRef = useRef(false);
+  const touchOnPinRef = useRef(false);
+  const lastTapTimeRef = useRef(0);
+
   // Convert viewport coords to world (canvas) coords
   const toWorld = useCallback((screenX: number, screenY: number) => {
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -223,18 +232,24 @@ export const SimulatorCanvas = () => {
   }, []);
 
   // Attach touch listeners as non-passive so preventDefault() works, enabling
-  // single-finger pan, single-finger component drag, and two-finger pinch-to-zoom.
+  // single-finger pan, component drag, wire creation/selection, and two-finger pinch-to-zoom.
   useEffect(() => {
     const el = canvasRef.current;
     if (!el) return;
 
     const onTouchStart = (e: TouchEvent) => {
-      e.preventDefault(); // Prevent browser scroll / mouse-event synthesis
-
-      pinchStartDistRef.current = 0; // Reset pinch state on each new gesture
+      // Reset per-gesture flags
+      touchOnPinRef.current = false;
+      touchPassthroughRef.current = false;
+      pinchStartDistRef.current = 0;
 
       if (e.touches.length === 2) {
-        // ── Two-finger pinch: cancel any active drag/pan and prepare zoom ──
+        e.preventDefault();
+        // Cancel wire in progress on two-finger gesture
+        if (wireInProgressRef.current) {
+          useSimulatorStore.getState().cancelWireCreation();
+        }
+        // Cancel any active drag/pan and prepare zoom
         isPanningRef.current = false;
         touchDraggedComponentIdRef.current = null;
 
@@ -254,16 +269,47 @@ export const SimulatorCanvas = () => {
 
       if (e.touches.length !== 1) return;
       const touch = e.touches[0];
-      touchClickStartTimeRef.current = Date.now();
-      touchClickStartPosRef.current = { x: touch.clientX, y: touch.clientY };
 
       // Identify what element was touched
       const target = document.elementFromPoint(touch.clientX, touch.clientY);
+
+      // ── 1. Pin overlay → let pin's onTouchEnd React handler call handlePinClick ──
+      if (target?.closest('[data-pin-overlay]')) {
+        e.preventDefault();
+        touchOnPinRef.current = true;
+        return;
+      }
+
+      // ── 2. Interactive web component during simulation → let browser synthesize mouse events ──
+      //    (potentiometer knobs, button presses, etc. need mousedown/mouseup synthesis)
+      //    touch-action:none on .canvas-content already prevents browser scroll/zoom.
+      if (runningRef.current) {
+        const webComp = target?.closest('.web-component-container');
+        if (webComp) {
+          touchPassthroughRef.current = true;
+          // Don't preventDefault → browser synthesizes mouse events for the component
+          return;
+        }
+      }
+
+      e.preventDefault();
+
+      touchClickStartTimeRef.current = Date.now();
+      touchClickStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+
+      // ── 3. Wire in progress → track for waypoint, update preview ──
+      if (wireInProgressRef.current) {
+        const world = toWorld(touch.clientX, touch.clientY);
+        useSimulatorStore.getState().updateWireInProgress(world.x, world.y);
+        // Don't start pan/drag — let touchmove update wire preview, touchend add waypoint
+        return;
+      }
+
+      // ── 4. Component detection ──
       const componentWrapper = target?.closest('[data-component-id]') as HTMLElement | null;
       const boardOverlay = target?.closest('[data-board-overlay]') as HTMLElement | null;
 
       if (componentWrapper) {
-        // ── Single finger on a component: track for click/drag ──
         const componentId = componentWrapper.getAttribute('data-component-id');
         if (componentId) {
           const component = componentsRef.current.find((c) => c.id === componentId);
@@ -278,16 +324,29 @@ export const SimulatorCanvas = () => {
           }
         }
       } else if (boardOverlay && !runningRef.current) {
-        // ── Single finger on the board overlay: start board drag ──
-        const board = boardPositionRef.current;
-        const world = toWorld(touch.clientX, touch.clientY);
-        touchDraggedComponentIdRef.current = '__board__';
-        touchDragOffsetRef.current = {
-          x: world.x - board.x,
-          y: world.y - board.y,
-        };
+        // ── 5. Board overlay: use multi-board path ──
+        const boardId = boardOverlay.getAttribute('data-board-id');
+        const storeBoards = useSimulatorStore.getState().boards;
+        const boardInstance = boardId ? storeBoards.find(b => b.id === boardId) : null;
+        if (boardInstance) {
+          const world = toWorld(touch.clientX, touch.clientY);
+          touchDraggedComponentIdRef.current = `__board__:${boardId}`;
+          touchDragOffsetRef.current = {
+            x: world.x - boardInstance.x,
+            y: world.y - boardInstance.y,
+          };
+        } else {
+          // Fallback to legacy single board
+          const board = boardPositionRef.current;
+          const world = toWorld(touch.clientX, touch.clientY);
+          touchDraggedComponentIdRef.current = '__board__';
+          touchDragOffsetRef.current = {
+            x: world.x - board.x,
+            y: world.y - board.y,
+          };
+        }
       } else {
-        // ── Single finger on empty canvas: start pan ──
+        // ── 6. Empty canvas → start pan ──
         isPanningRef.current = true;
         panStartRef.current = {
           mouseX: touch.clientX,
@@ -299,6 +358,11 @@ export const SimulatorCanvas = () => {
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // Let interactive components handle their own touch (potentiometer drag, etc.)
+      if (touchPassthroughRef.current) return;
+      // Pin touch: no move processing needed
+      if (touchOnPinRef.current) { e.preventDefault(); return; }
+
       e.preventDefault();
 
       if (e.touches.length === 2 && pinchStartDistRef.current > 0) {
@@ -330,6 +394,13 @@ export const SimulatorCanvas = () => {
 
       if (e.touches.length !== 1) return;
       const touch = e.touches[0];
+
+      // ── Wire preview: update position as finger moves ──
+      if (wireInProgressRef.current && !isPanningRef.current && !touchDraggedComponentIdRef.current) {
+        const world = toWorld(touch.clientX, touch.clientY);
+        useSimulatorStore.getState().updateWireInProgress(world.x, world.y);
+        return;
+      }
 
       if (isPanningRef.current) {
         // ── Single finger pan ──
@@ -369,6 +440,18 @@ export const SimulatorCanvas = () => {
     };
 
     const onTouchEnd = (e: TouchEvent) => {
+      // Let interactive components handle their own touch
+      if (touchPassthroughRef.current) {
+        touchPassthroughRef.current = false;
+        return;
+      }
+      // Pin touch: let pin's onTouchEnd React handler deal with it
+      if (touchOnPinRef.current) {
+        touchOnPinRef.current = false;
+        e.preventDefault();
+        return;
+      }
+
       e.preventDefault();
 
       // ── Finish pinch zoom: commit values to React state ──
@@ -381,33 +464,49 @@ export const SimulatorCanvas = () => {
       if (e.touches.length > 0) return; // Still fingers on screen
 
       // ── Finish panning ──
+      let wasPanning = false;
       if (isPanningRef.current) {
         isPanningRef.current = false;
         setPan({ ...panRef.current });
+        wasPanning = true;
+        // Don't return — fall through so short taps can select wires
       }
 
       const changed = e.changedTouches[0];
+      if (!changed) return;
+
+      const elapsed = Date.now() - touchClickStartTimeRef.current;
+      const dx = changed.clientX - touchClickStartPosRef.current.x;
+      const dy = changed.clientY - touchClickStartPosRef.current.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const isShortTap = dist < 10 && elapsed < 400;
+
+      // If we actually panned (moved significantly), don't process as tap
+      if (wasPanning && !isShortTap) return;
 
       // ── Finish component/board drag ──
       if (touchDraggedComponentIdRef.current) {
-        const elapsed = Date.now() - touchClickStartTimeRef.current;
-        const dx = changed ? changed.clientX - touchClickStartPosRef.current.x : 0;
-        const dy = changed ? changed.clientY - touchClickStartPosRef.current.y : 0;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        const touchId = touchDraggedComponentIdRef.current;
 
-        // Short tap with minimal movement → open property dialog or sensor panel
-        if (dist < 5 && elapsed < 300 && touchDraggedComponentIdRef.current !== '__board__') {
-          const component = componentsRef.current.find(
-            (c) => c.id === touchDraggedComponentIdRef.current
-          );
-          if (component) {
-            if (runningRef.current && SENSOR_CONTROLS[component.metadataId] !== undefined) {
-              setSensorControlComponentId(touchDraggedComponentIdRef.current);
-              setSensorControlMetadataId(component.metadataId);
-            } else {
-              setPropertyDialogComponentId(touchDraggedComponentIdRef.current);
-              setPropertyDialogPosition({ x: component.x, y: component.y });
-              setShowPropertyDialog(true);
+        if (isShortTap) {
+          if (touchId.startsWith('__board__:')) {
+            // Short tap on board → make it the active board
+            const boardId = touchId.slice('__board__:'.length);
+            useSimulatorStore.getState().setActiveBoardId(boardId);
+          } else if (touchId !== '__board__') {
+            // Short tap on component → open property dialog or sensor panel
+            const component = componentsRef.current.find(
+              (c) => c.id === touchId
+            );
+            if (component) {
+              if (runningRef.current && SENSOR_CONTROLS[component.metadataId] !== undefined) {
+                setSensorControlComponentId(touchId);
+                setSensorControlMetadataId(component.metadataId);
+              } else {
+                setPropertyDialogComponentId(touchId);
+                setPropertyDialogPosition({ x: component.x, y: component.y });
+                setShowPropertyDialog(true);
+              }
             }
           }
         }
@@ -417,13 +516,36 @@ export const SimulatorCanvas = () => {
         return;
       }
 
-      // ── Short tap on empty canvas: deselect ──
-      if (changed) {
-        const elapsed = Date.now() - touchClickStartTimeRef.current;
-        const dx = changed.clientX - touchClickStartPosRef.current.x;
-        const dy = changed.clientY - touchClickStartPosRef.current.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 5 && elapsed < 300) {
+      // ── Wire in progress: short tap adds waypoint ──
+      if (wireInProgressRef.current) {
+        if (isShortTap) {
+          const world = toWorld(changed.clientX, changed.clientY);
+          useSimulatorStore.getState().addWireWaypoint(world.x, world.y);
+        }
+        return;
+      }
+
+      // ── Short tap on empty canvas: wire selection + double-tap wire deletion ──
+      if (isShortTap) {
+        const now = Date.now();
+        const world = toWorld(changed.clientX, changed.clientY);
+        const threshold = 8 / zoomRef.current;
+        const wire = findWireNearPoint(wiresRef.current, world.x, world.y, threshold);
+
+        // Double-tap → delete wire
+        const timeSinceLastTap = now - lastTapTimeRef.current;
+        if (timeSinceLastTap < 350 && wire) {
+          useSimulatorStore.getState().removeWire(wire.id);
+          lastTapTimeRef.current = 0;
+          return;
+        }
+        lastTapTimeRef.current = now;
+
+        if (wire) {
+          const curr = selectedWireIdRef.current;
+          useSimulatorStore.getState().setSelectedWire(curr === wire.id ? null : wire.id);
+        } else {
+          useSimulatorStore.getState().setSelectedWire(null);
           setSelectedComponentId(null);
         }
       }
@@ -1224,6 +1346,14 @@ export const SimulatorCanvas = () => {
             {/* Components using wokwi-elements */}
             <div className="components-area">{registryLoaded && components.map(renderComponent)}</div>
           </div>
+
+          {/* Wire creation mode banner — visible on both desktop and mobile */}
+          {wireInProgress && (
+            <div className="wire-mode-banner">
+              <span>Tap a pin to connect — tap canvas for waypoints</span>
+              <button onClick={() => cancelWireCreation()}>Cancel</button>
+            </div>
+          )}
         </div>
       </div>
 

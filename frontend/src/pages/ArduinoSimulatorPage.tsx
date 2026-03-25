@@ -7,7 +7,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import './SEOPage.css';
+
+const META = getSeoMeta('/arduino-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const ArduinoSimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Free Online Arduino Simulator — Run Sketches in Your Browser | Velxio',
-    description:
-      'A free online Arduino simulator with real AVR8 emulation. Write and simulate Arduino code with LEDs, sensors, and 48+ components — no install, no account, instant results.',
-    url: 'https://velxio.dev/arduino-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

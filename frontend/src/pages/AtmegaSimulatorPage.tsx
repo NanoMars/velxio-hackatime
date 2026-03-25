@@ -7,7 +7,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import './SEOPage.css';
+
+const META = getSeoMeta('/atmega328p-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const AtmegaSimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'ATmega328P Simulator — Free Browser-Based AVR8 Emulation | Velxio',
-    description:
-      'Simulate ATmega328P code in your browser. Full AVR8 emulation at 16 MHz — PORTB, PORTC, PORTD, Timer0/1/2, ADC, USART — with 48+ interactive components. Free & open-source.',
-    url: 'https://velxio.dev/atmega328p-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

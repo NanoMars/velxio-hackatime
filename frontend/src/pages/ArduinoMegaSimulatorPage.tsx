@@ -7,7 +7,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import './SEOPage.css';
+
+const META = getSeoMeta('/arduino-mega-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const ArduinoMegaSimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Arduino Mega 2560 Simulator — Free Online AVR8 Emulator | Velxio',
-    description:
-      'Simulate Arduino Mega 2560 (ATmega2560) code for free in your browser. 256 KB flash, 54 digital pins, 16 analog inputs, 4 serial ports — full AVR8 emulation with 48+ components.',
-    url: 'https://velxio.dev/arduino-mega-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

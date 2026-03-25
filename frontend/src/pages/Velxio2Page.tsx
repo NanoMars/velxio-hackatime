@@ -7,6 +7,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import raspberryPi3Svg from '../assets/Raspberry_Pi_3_illustration.svg';
 import './SEOPage.css';
 import './Velxio2Page.css';
@@ -243,13 +244,7 @@ const CHANGE_SECTIONS = [
 ];
 
 export const Velxio2Page: React.FC = () => {
-  useSEO({
-    title: 'Velxio 2.0 — Multi-Board Embedded Simulator | ESP32, Raspberry Pi, Arduino, RISC-V',
-    description:
-      'Velxio 2.0 is here. Simulate Arduino, ESP32, Raspberry Pi Pico, and Raspberry Pi 3 in your browser. 19 boards, 68+ examples, realistic sensor simulation. Free and open-source.',
-    url: 'https://velxio.dev/v2',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...getSeoMeta('/v2')!, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

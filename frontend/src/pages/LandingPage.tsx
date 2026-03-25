@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/useAuthStore';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import raspberryPi3Svg from '../assets/Raspberry_Pi_3_illustration.svg';
 import './LandingPage.css';
 
@@ -436,10 +437,7 @@ const UserMenu: React.FC = () => {
 /* ── Component ────────────────────────────────────────── */
 export const LandingPage: React.FC = () => {
   useSEO({
-    title: 'Velxio — Free Multi-Board Emulator | Arduino · ESP32 · RP2040 · RISC-V · Raspberry Pi',
-    description:
-      'Velxio is a free, open-source multi-board emulator. 19 boards across 5 CPU architectures: Arduino Uno/Mega/ATtiny (AVR8), ESP32/ESP32-S3 (Xtensa QEMU), ESP32-C3/CH32V003 (RISC-V), Raspberry Pi Pico (RP2040), Raspberry Pi 3 (Linux). 48+ components, no cloud.',
-    url: 'https://velxio.dev/',
+    ...getSeoMeta('/')!,
     jsonLd: {
       '@context': 'https://schema.org',
       '@type': 'FAQPage',

@@ -7,7 +7,10 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import './SEOPage.css';
+
+const META = getSeoMeta('/arduino-emulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const ArduinoEmulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Arduino Emulator — Real AVR8 & RP2040 Emulation, Free | Velxio',
-    description:
-      'Free, open-source Arduino emulator with cycle-accurate AVR8 emulation at 16 MHz. Emulate Arduino Uno, Nano, Mega and Raspberry Pi Pico in your browser — no cloud, no install.',
-    url: 'https://velxio.dev/arduino-emulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

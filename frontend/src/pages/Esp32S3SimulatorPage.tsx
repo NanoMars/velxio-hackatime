@@ -7,8 +7,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import esp32S3SvgUrl from '../../../wokwi-libs/wokwi-boards/boards/esp32-s3-devkitc-1/board.svg?url';
 import './SEOPage.css';
+
+const META = getSeoMeta('/esp32-s3-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const Esp32S3SimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Free ESP32-S3 Simulator — Xtensa LX7 Emulation Online | Velxio',
-    description:
-      'Simulate ESP32-S3 code for free. Real Xtensa LX7 dual-core emulation at 240 MHz via QEMU — DevKitC, XIAO ESP32-S3, Arduino Nano ESP32. 48+ components, no install.',
-    url: 'https://velxio.dev/esp32-s3-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

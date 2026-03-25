@@ -7,8 +7,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import raspberryPi3Svg from '../assets/Raspberry_Pi_3_illustration.svg';
 import './SEOPage.css';
+
+const META = getSeoMeta('/raspberry-pi-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const RaspberryPiSimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Free Raspberry Pi 3 Simulator — Full Linux Emulation in Your Browser | Velxio',
-    description:
-      'Simulate Raspberry Pi 3 for free. Full ARM Cortex-A53 Linux emulation via QEMU — run Python, bash, RPi.GPIO in your browser. No Raspberry Pi hardware needed.',
-    url: 'https://velxio.dev/raspberry-pi-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

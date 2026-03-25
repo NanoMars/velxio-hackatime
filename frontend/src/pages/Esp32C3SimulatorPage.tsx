@@ -7,8 +7,11 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { AppHeader } from '../components/layout/AppHeader';
 import { useSEO } from '../utils/useSEO';
+import { getSeoMeta } from '../seoRoutes';
 import esp32C3SvgUrl from '../../../wokwi-libs/wokwi-boards/boards/esp32-c3-devkitm-1/board.svg?url';
 import './SEOPage.css';
+
+const META = getSeoMeta('/esp32-c3-simulator')!;
 
 const FAQ_ITEMS = [
   {
@@ -66,13 +69,7 @@ const JSON_LD: object[] = [
 ];
 
 export const Esp32C3SimulatorPage: React.FC = () => {
-  useSEO({
-    title: 'Free ESP32-C3 & RISC-V Simulator — Browser-Native Emulation | Velxio',
-    description:
-      'Simulate ESP32-C3 RISC-V code directly in your browser — no backend needed. RV32IMC at 160 MHz, 48+ components, Serial Monitor. Also supports CH32V003. Free and open-source.',
-    url: 'https://velxio.dev/esp32-c3-simulator',
-    jsonLd: JSON_LD,
-  });
+  useSEO({ ...META, jsonLd: JSON_LD });
 
   return (
     <div className="seo-page">

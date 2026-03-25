@@ -29,8 +29,9 @@ const arrayStr = match[1]
   .replace(/\/\/.*$/gm, '')   // remove line comments
   .replace(/\/\*[\s\S]*?\*\//g, ''); // remove block comments
 
-// Use Function constructor to evaluate the JS array literal
-const routes = new Function(`return [${arrayStr}]`)();
+// Use Function constructor to evaluate the JS array literal.
+// Inject DOMAIN so template literals like `${DOMAIN}/path` resolve correctly.
+const routes = new Function('DOMAIN', `return [${arrayStr}]`)(DOMAIN);
 
 const indexable = routes.filter((r) => !r.noindex);
 

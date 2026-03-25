@@ -74,17 +74,22 @@ export const PinOverlay: React.FC<PinOverlayProps> = ({
         return (
           <div
             key={`${pin.name}-${index}`}
+            data-pin-overlay="true"
             onClick={(e) => {
+              e.stopPropagation();
+              onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
+            }}
+            onTouchEnd={(e) => {
               e.stopPropagation();
               onPinClick(componentId, pin.name, componentX + wrapperOffsetX + pinX, componentY + wrapperOffsetY + pinY);
             }}
             style={{
               position: 'absolute',
-              left: `${pinX - 4}px`,
-              top: `${pinY - 4}px`,
-              width: '8px',
-              height: '8px',
-              borderRadius: '2px',
+              left: `${pinX - 6}px`,
+              top: `${pinY - 6}px`,
+              width: '12px',
+              height: '12px',
+              borderRadius: '3px',
               backgroundColor: 'rgba(0, 200, 255, 0.8)',
               border: '1.5px solid white',
               cursor: 'crosshair',

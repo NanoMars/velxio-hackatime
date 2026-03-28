@@ -509,7 +509,10 @@ export const LandingPage: React.FC = () => {
 
         </div>
         <div className="hero-right">
-          <img src="/image.png" alt="Velxio simulator preview" className="hero-preview-img" />
+          <picture>
+            <source srcSet="/image.webp" type="image/webp" />
+            <img src="/image.png" alt="Velxio simulator preview" className="hero-preview-img" loading="lazy" />
+          </picture>
         </div>
       </section>
 

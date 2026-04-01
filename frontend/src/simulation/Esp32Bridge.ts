@@ -240,6 +240,11 @@ export class Esp32Bridge {
     this._pendingSensors = sensors;
   }
 
+  /** Returns true if a firmware has been loaded and is ready to send. */
+  hasFirmware(): boolean {
+    return this._pendingFirmware !== null && this._pendingFirmware !== '';
+  }
+
   /**
    * Load a compiled firmware (base64-encoded .bin) into the running ESP32.
    * If not yet connected, the firmware will be sent on next connect().

@@ -1,7 +1,11 @@
 name: Build ESP-IDF Toolchain Image
 
-# Only runs manually or when ESP-IDF version changes (rare)
+# Runs when Dockerfile.espidf-toolchain changes, or manually
 on:
+  push:
+    branches: [master]
+    paths:
+      - 'Dockerfile.espidf-toolchain'
   workflow_dispatch:
 
 env:

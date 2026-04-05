@@ -659,17 +659,20 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           }
           esp32Bridge.setSensors(sensors);
 
-          // Auto-detect WiFi usage in this board's sketch files.
-          // Use the board's file group (not the legacy global files array).
-          const editorState = useEditorStore.getState();
-          const boardFiles = editorState.fileGroups[board.activeFileGroupId]
-            ?? editorState.files;
-          const hasWifi = boardFiles.some(f =>
-            f.content.includes('#include <WiFi.h>') ||
-            f.content.includes('#include <esp_wifi.h>') ||
-            f.content.includes('#include "WiFi.h"') ||
-            f.content.includes('WiFi.begin(')
-          );
+          // Use WiFi flag set by the compiler (most reliable — avoids stale file group issues).
+          // Fall back to scanning the active file group if the flag hasn't been set yet.
+          let hasWifi = board.hasWifi;
+          if (hasWifi === undefined) {
+            const editorState = useEditorStore.getState();
+            const rawFiles = editorState.fileGroups[board.activeFileGroupId];
+            const boardFiles = (rawFiles && rawFiles.length > 0) ? rawFiles : editorState.files;
+            hasWifi = boardFiles.some(f =>
+              f.content.includes('#include <WiFi.h>') ||
+              f.content.includes('#include <esp_wifi.h>') ||
+              f.content.includes('#include "WiFi.h"') ||
+              f.content.includes('WiFi.begin(')
+            );
+          }
           esp32Bridge.wifiEnabled = hasWifi;
 
           // Ensure firmware is loaded into the bridge (handles page-refresh case

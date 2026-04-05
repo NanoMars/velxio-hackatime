@@ -49,6 +49,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     boards,
     activeBoardId,
     compileBoardProgram,
+    updateBoard,
     startBoard,
     stopBoard,
     resetBoard,
@@ -135,6 +136,9 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         const program = result.hex_content ?? result.binary_content ?? null;
         if (program && activeBoardId) {
           compileBoardProgram(activeBoardId, program);
+          if (result.has_wifi !== undefined) {
+            updateBoard(activeBoardId, { hasWifi: result.has_wifi });
+          }
         }
         setMessage({ type: 'success', text: 'Compiled successfully' });
         markCompiled();
@@ -279,7 +283,12 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
         if (result.success) {
           const program = result.hex_content ?? result.binary_content ?? null;
-          if (program) compileBoardProgram(board.id, program);
+          if (program) {
+            compileBoardProgram(board.id, program);
+            if (result.has_wifi !== undefined) {
+              updateBoard(board.id, { hasWifi: result.has_wifi });
+            }
+          }
           updateStatus({ state: 'success' });
         } else {
           updateStatus({ state: 'error', error: result.stderr || result.error || 'Compilation failed' });

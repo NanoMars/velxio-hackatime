@@ -38,6 +38,7 @@ export interface BoardInstance {
   serialBaudRate: number;
   serialMonitorOpen: boolean;
   activeFileGroupId: string;
+  hasWifi?: boolean;         // set by compiler — true when sketch uses WiFi
   wifiStatus?: WifiStatus;
   bleStatus?: BleStatus;
 }

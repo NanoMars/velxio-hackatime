@@ -29,6 +29,7 @@ class CompileResponse(BaseModel):
     hex_content: str | None = None
     binary_content: str | None = None  # base64-encoded .bin for RP2040
     binary_type: str | None = None     # 'bin' or 'uf2'
+    has_wifi: bool = False             # True when sketch uses WiFi (ESP32 only)
     stdout: str
     stderr: str
     error: str | None = None
@@ -63,6 +64,7 @@ async def compile_sketch(request: CompileRequest):
                 hex_content=result.get("hex_content"),
                 binary_content=result.get("binary_content"),
                 binary_type=result.get("binary_type"),
+                has_wifi=result.get("has_wifi", False),
                 stdout=result.get("stdout", ""),
                 stderr=result.get("stderr", ""),
                 error=result.get("error"),

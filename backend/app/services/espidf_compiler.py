@@ -477,6 +477,8 @@ class ESPIDFCompiler:
             # QEMU's WiFi AP broadcasts "Velxio-GUEST" on channel 6.
             # We normalize ANY user SSID → "Velxio-GUEST", enforce channel 6,
             # and use open auth (empty password) so the connection always works.
+            # Detect WiFi BEFORE normalization so the flag reflects the original sketch.
+            has_wifi = self._detect_wifi_usage(main_content)
             main_content = self._normalize_wifi_for_qemu(main_content)
 
             if self.has_arduino:
@@ -622,13 +624,14 @@ class ESPIDFCompiler:
                 }
 
             binary_b64 = base64.b64encode(merged_path.read_bytes()).decode('ascii')
-            logger.info(f'[espidf] Compilation successful — {len(binary_b64) // 1024} KB (base64)')
+            logger.info(f'[espidf] Compilation successful — {len(binary_b64) // 1024} KB (base64), has_wifi={has_wifi}')
 
             return {
                 'success': True,
                 'hex_content': None,
                 'binary_content': binary_b64,
                 'binary_type': 'bin',
+                'has_wifi': has_wifi,
                 'stdout': all_stdout,
                 'stderr': all_stderr,
             }

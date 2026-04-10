@@ -86,6 +86,187 @@ class ESPIDFCompiler:
         """Whether ESP-IDF toolchain is available."""
         return bool(self.idf_path) and os.path.isdir(self.idf_path)
 
+    def _arduino_user_libraries_dir(self) -> Path | None:
+        """
+        Locate the directory where `arduino-cli lib install` drops user libraries.
+        Uses `arduino-cli config dump` so we match whatever the library manager
+        is actually writing to. Returns None if arduino-cli is missing or the
+        config doesn't expose a user directory.
+        """
+        try:
+            result = subprocess.run(
+                ['arduino-cli', 'config', 'dump', '--format', 'json'],
+                capture_output=True, text=True, encoding='utf-8', errors='replace',
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            import json
+            cfg = json.loads(result.stdout)
+            config_dict = cfg.get('config', cfg)
+            user_dir = (
+                config_dict.get('directories', {}).get('user', '')
+                or config_dict.get('directories', {}).get('sketchbook', '')
+            )
+            if not user_dir:
+                return None
+            libraries_dir = Path(user_dir) / 'libraries'
+            return libraries_dir if libraries_dir.is_dir() else None
+        except Exception as e:
+            logger.warning(f'[espidf] Could not resolve arduino-cli user dir: {e}')
+            return None
+
+    def _collect_installed_libraries(self) -> list[dict]:
+        """
+        Walk the arduino-cli user libraries directory and return a list of
+        entries {name, src_dir, source_files, include_dirs} suitable for
+        injecting into the ESP-IDF main component.
+
+        Only libraries that actually contain source files are returned.
+        Each library's src/ directory (or the library root if there is no
+        src/) is treated as the source root. Subdirectories containing headers
+        are all added as include dirs so nested #includes work.
+        """
+        libraries_dir = self._arduino_user_libraries_dir()
+        if not libraries_dir:
+            return []
+
+        result: list[dict] = []
+        for lib_dir in sorted(libraries_dir.iterdir()):
+            if not lib_dir.is_dir() or lib_dir.name.startswith('.'):
+                continue
+
+            # Source root: prefer src/ (modern layout), fall back to lib root
+            src_root = lib_dir / 'src' if (lib_dir / 'src').is_dir() else lib_dir
+
+            source_files: list[Path] = []
+            include_dirs: set[Path] = set()
+            for f in src_root.rglob('*'):
+                if not f.is_file():
+                    continue
+                suffix = f.suffix.lower()
+                if suffix in ('.cpp', '.c', '.cc', '.S', '.s'):
+                    source_files.append(f)
+                if suffix in ('.h', '.hpp', '.hh'):
+                    include_dirs.add(f.parent)
+
+            if not source_files and not include_dirs:
+                continue  # No C/C++ content — skip
+
+            # Always include the src root so `#include "LibName.h"` works
+            include_dirs.add(src_root)
+
+            result.append({
+                'name': lib_dir.name,
+                'src_root': src_root,
+                'source_files': source_files,
+                'include_dirs': sorted(include_dirs),
+            })
+        return result
+
+    def _inject_arduino_libraries(self, project_dir: Path) -> tuple[list[str], list[str]]:
+        """
+        Copy arduino-cli installed libraries into the temp ESP-IDF project and
+        return (srcs, include_dirs) relative to project_dir/main that should be
+        appended to the main component's idf_component_register call.
+
+        Libraries land at main/libs/<libname>/ preserving their internal tree,
+        so the caller can pass these back into the CMakeLists template.
+        """
+        libs = self._collect_installed_libraries()
+        if not libs:
+            return [], []
+
+        main_dir = project_dir / 'main'
+        libs_root = main_dir / 'libs'
+        libs_root.mkdir(parents=True, exist_ok=True)
+
+        rel_sources: list[str] = []
+        rel_includes: list[str] = []
+
+        for lib in libs:
+            # Sanitize subdir name — keep it stable and filesystem-safe
+            safe_name = re.sub(r'[^A-Za-z0-9_.-]', '_', lib['name'])
+            dest_root = libs_root / safe_name
+            if dest_root.exists():
+                shutil.rmtree(dest_root)
+            # Copy the entire src root tree into libs/<name>/
+            shutil.copytree(lib['src_root'], dest_root)
+
+            # Re-derive paths inside the destination so they're relative to main/
+            for src_file in lib['source_files']:
+                try:
+                    rel_to_src_root = src_file.relative_to(lib['src_root'])
+                except ValueError:
+                    continue
+                rel_sources.append(
+                    str((Path('libs') / safe_name / rel_to_src_root)).replace('\\', '/')
+                )
+
+            for inc_dir in lib['include_dirs']:
+                try:
+                    rel_to_src_root = inc_dir.relative_to(lib['src_root'])
+                except ValueError:
+                    continue
+                rel_includes.append(
+                    str((Path('libs') / safe_name / rel_to_src_root)).replace('\\', '/')
+                )
+
+            logger.info(
+                f'[espidf] Injected library {lib["name"]}: '
+                f'{len(lib["source_files"])} sources, {len(lib["include_dirs"])} include dirs'
+            )
+
+        # Deduplicate include dirs while preserving order
+        seen: set[str] = set()
+        unique_includes: list[str] = []
+        for inc in rel_includes:
+            if inc not in seen:
+                seen.add(inc)
+                unique_includes.append(inc)
+
+        return rel_sources, unique_includes
+
+    def _write_main_cmakelists(
+        self,
+        project_dir: Path,
+        extra_srcs: list[str],
+        extra_includes: list[str],
+    ) -> None:
+        """
+        Rewrite main/CMakeLists.txt with the sketch + any injected libraries.
+
+        The base template assumes `SRCS main.cpp` / `INCLUDE_DIRS "."`, but
+        injected libraries add more. We regenerate the whole file so it's
+        explicit and debuggable from the temp project directory.
+        """
+        srcs = ['main.cpp'] + extra_srcs
+        includes = ['.'] + extra_includes
+
+        srcs_str = '\n        '.join(f'"{s}"' for s in srcs)
+        includes_str = '\n        '.join(f'"{i}"' for i in includes)
+
+        content = f'''# Auto-generated by espidf_compiler.py — includes user sketch plus any
+# arduino-cli installed libraries copied under main/libs/.
+if(DEFINED ENV{{ARDUINO_ESP32_PATH}})
+    get_filename_component(_arduino_comp_name $ENV{{ARDUINO_ESP32_PATH}} NAME)
+    idf_component_register(
+        SRCS
+        {srcs_str}
+        INCLUDE_DIRS
+        {includes_str}
+        REQUIRES ${{_arduino_comp_name}}
+    )
+else()
+    # Pure ESP-IDF mode: main.c #includes sketch_translated.c
+    idf_component_register(
+        SRCS "main.c"
+        INCLUDE_DIRS "."
+    )
+endif()
+'''
+        (project_dir / 'main' / 'CMakeLists.txt').write_text(content, encoding='utf-8')
+
     def _is_esp32c3(self, board_fqbn: str) -> bool:
         """Return True if FQBN targets ESP32-C3 (RISC-V)."""
         return 'esp32c3' in board_fqbn or 'esp32-c3' in board_fqbn
@@ -506,6 +687,30 @@ class ESPIDFCompiler:
                 sketch_translated = project_dir / 'main' / 'sketch_translated.c'
                 if sketch_translated.exists():
                     sketch_translated.unlink()
+
+                # ── Inject arduino-cli installed libraries ──────────────────
+                # Anything the user installed via the Library Manager (e.g.
+                # AsyncTCP, ESPAsyncWebServer, ArduinoJson) needs to be added
+                # to the main component's sources / include dirs or ESP-IDF
+                # won't be able to find the headers. We copy each library's
+                # tree under main/libs/<name>/ and regenerate main/CMakeLists.txt.
+                #
+                # NB: sketch.ino.cpp is NOT in SRCS — main.cpp includes it via
+                # `#include "sketch.ino.cpp"` (see the template). Adding it
+                # here would cause duplicate-symbol link errors.
+                extra_srcs, extra_includes = self._inject_arduino_libraries(project_dir)
+                # User's own .c/.cpp files (dropped next to the sketch by the
+                # Velxio file explorer) should still be compiled. We do not
+                # include .h files — those are picked up via INCLUDE_DIRS ".".
+                user_extra_srcs = [
+                    f['name'] for f in files
+                    if f['name'].endswith(('.cpp', '.c', '.cc'))
+                ]
+                self._write_main_cmakelists(
+                    project_dir,
+                    extra_srcs=user_extra_srcs + extra_srcs,
+                    extra_includes=extra_includes,
+                )
             else:
                 # Pure ESP-IDF mode: translate sketch
                 translated = self._translate_sketch_to_espidf(main_content)

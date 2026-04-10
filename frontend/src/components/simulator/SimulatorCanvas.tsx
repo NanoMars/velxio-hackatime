@@ -63,6 +63,35 @@ export const SimulatorCanvas = () => {
   // Active board (for WiFi/BLE status display)
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
+  // Auto-open the IoT Gateway in a new tab the first time each board reaches
+  // wifi:got_ip. The serial output tells users to "Open the IoT Gateway link",
+  // so we do it for them: when the ESP32 connects and gets an IP, open the
+  // proxied web server URL automatically. We remember which boards we've
+  // already auto-opened in a ref so restarts / reconnects don't spam tabs.
+  const autoOpenedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!activeBoard) return;
+    if (!isEsp32Kind(activeBoard.boardKind)) return;
+    if (activeBoard.wifiStatus?.status !== 'got_ip') return;
+    if (autoOpenedRef.current.has(activeBoard.id)) return;
+
+    const sessionId = getTabSessionId();
+    const clientId = `${sessionId}::${activeBoard.id}`;
+    const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
+    const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+
+    autoOpenedRef.current.add(activeBoard.id);
+    window.open(gatewayUrl, '_blank', 'noopener,noreferrer');
+  }, [activeBoard?.id, activeBoard?.wifiStatus?.status]);
+
+  // Reset auto-open tracking when a board stops running so a fresh
+  // run (after clicking Stop + Run) will open a fresh tab.
+  useEffect(() => {
+    if (activeBoard && !activeBoard.running) {
+      autoOpenedRef.current.delete(activeBoard.id);
+    }
+  }, [activeBoard?.id, activeBoard?.running]);
+
   // Legacy derived values for components that still use them
   const boardType = useSimulatorStore((s) => s.boardType);
   const boardPosition = useSimulatorStore((s) => s.boardPosition);

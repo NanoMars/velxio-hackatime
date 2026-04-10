@@ -816,6 +816,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
             eventTarget.dispatchEvent(new CustomEvent('ws2812-pixels', { detail: { pixels } }));
           }
         };
+        // WiFi / BLE status wiring — was missing on the setBoardType and
+        // initSimulator paths, so importing a zip or re-initializing an
+        // ESP32 board never populated board.wifiStatus even when the
+        // sketch got an IP. Without wifiStatus the WiFi badge is hidden
+        // and the IoT Gateway link is unreachable.
+        bridge.onWifiStatus = (ws) => {
+          set((s) => ({
+            boards: s.boards.map((b) => b.id === boardId ? { ...b, wifiStatus: ws } : b),
+          }));
+        };
+        bridge.onBleStatus = (bs) => {
+          set((s) => ({
+            boards: s.boards.map((b) => b.id === boardId ? { ...b, bleStatus: bs } : b),
+          }));
+        };
         esp32BridgeMap.set(boardId, bridge);
         const shim = new Esp32BridgeShim(bridge, pm);
         shim.onSerialData = serialCallback;
@@ -903,6 +918,21 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
           if (eventTarget) {
             eventTarget.dispatchEvent(new CustomEvent('ws2812-pixels', { detail: { pixels } }));
           }
+        };
+        // WiFi / BLE status wiring — was missing on the setBoardType and
+        // initSimulator paths, so importing a zip or re-initializing an
+        // ESP32 board never populated board.wifiStatus even when the
+        // sketch got an IP. Without wifiStatus the WiFi badge is hidden
+        // and the IoT Gateway link is unreachable.
+        bridge.onWifiStatus = (ws) => {
+          set((s) => ({
+            boards: s.boards.map((b) => b.id === boardId ? { ...b, wifiStatus: ws } : b),
+          }));
+        };
+        bridge.onBleStatus = (bs) => {
+          set((s) => ({
+            boards: s.boards.map((b) => b.id === boardId ? { ...b, bleStatus: bs } : b),
+          }));
         };
         esp32BridgeMap.set(boardId, bridge);
         const shim = new Esp32BridgeShim(bridge, pm);

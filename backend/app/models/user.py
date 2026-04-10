@@ -15,6 +15,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str | None] = mapped_column(String, nullable=True)
     google_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    hackclub_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)

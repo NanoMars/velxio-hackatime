@@ -27,3 +27,7 @@ export async function logout(): Promise<void> {
 export function initiateGoogleLogin(): void {
   window.location.href = `${API_BASE}/auth/google`;
 }
+
+export function initiateHackClubLogin(): void {
+  window.location.href = `${API_BASE}/auth/hackclub`;
+}

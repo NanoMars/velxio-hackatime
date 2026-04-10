@@ -172,3 +172,118 @@ async def google_callback(code: str, response: Response, db: AsyncSession = Depe
     redirect = RedirectResponse(url=f"{settings.FRONTEND_URL}/editor")
     _set_auth_cookie(redirect, jwt_token)
     return redirect
+
+
+# ── Hack Club OAuth ───────────────────────────────────────────────────────────
+# Docs: https://auth.hackclub.com (OAuth 2.0)
+
+HACKCLUB_AUTH_URL = "https://auth.hackclub.com/oauth/authorize"
+HACKCLUB_TOKEN_URL = "https://auth.hackclub.com/oauth/token"
+HACKCLUB_USERINFO_URL = "https://auth.hackclub.com/api/v1/me"
+
+
+@router.get("/hackclub")
+async def hackclub_login():
+    if not settings.HACKCLUB_CLIENT_ID:
+        raise HTTPException(status_code=501, detail="Hack Club OAuth not configured.")
+    params = {
+        "client_id": settings.HACKCLUB_CLIENT_ID,
+        "redirect_uri": settings.HACKCLUB_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "email name slack_id",
+    }
+    from urllib.parse import urlencode
+    url = f"{HACKCLUB_AUTH_URL}?{urlencode(params)}"
+    return RedirectResponse(url)
+
+
+@router.get("/hackclub/callback")
+async def hackclub_callback(code: str, db: AsyncSession = Depends(get_db)):
+    if not settings.HACKCLUB_CLIENT_ID or not settings.HACKCLUB_CLIENT_SECRET:
+        raise HTTPException(status_code=501, detail="Hack Club OAuth not configured.")
+
+    async with httpx.AsyncClient() as client:
+        token_resp = await client.post(
+            HACKCLUB_TOKEN_URL,
+            json={
+                "client_id": settings.HACKCLUB_CLIENT_ID,
+                "client_secret": settings.HACKCLUB_CLIENT_SECRET,
+                "redirect_uri": settings.HACKCLUB_REDIRECT_URI,
+                "code": code,
+                "grant_type": "authorization_code",
+            },
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_resp.text}")
+        access_token = token_resp.json()["access_token"]
+
+        userinfo_resp = await client.get(
+            HACKCLUB_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if userinfo_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Userinfo fetch failed: {userinfo_resp.text}")
+        payload = userinfo_resp.json()
+
+    identity = payload.get("identity", {})
+    # Stable user id from Hack Club (looks like "ident!47fYo3P")
+    hackclub_id: str = identity.get("id", "")
+    if not hackclub_id:
+        raise HTTPException(status_code=400, detail="Hack Club response missing identity.id")
+
+    email: str = identity.get("primary_email") or ""
+    first_name: str = identity.get("first_name") or ""
+    last_name: str = identity.get("last_name") or ""
+    slack_id: str | None = identity.get("slack_id")
+
+    # Upsert user by hackclub_id first
+    result = await db.execute(select(User).where(User.hackclub_id == hackclub_id))
+    user = result.scalar_one_or_none()
+
+    if not user and email:
+        # Try to link to an existing account with the same email
+        result2 = await db.execute(select(User).where(User.email == email))
+        user = result2.scalar_one_or_none()
+        if user:
+            user.hackclub_id = hackclub_id
+
+    if not user:
+        # Generate a username. Prefer slack_id-derived, then email prefix, then name.
+        import re
+        if slack_id:
+            base = f"hc-{slack_id.lower()}"
+        elif email:
+            base = email.split("@")[0].lower()
+        else:
+            base = f"{first_name}{last_name}".lower() or "hacker"
+        base = re.sub(r"[^a-z0-9_-]", "-", base)[:28] or "hacker"
+
+        username = base
+        counter = 1
+        while True:
+            existing = await db.execute(select(User).where(User.username == username))
+            if not existing.scalar_one_or_none():
+                break
+            username = f"{base}{counter}"
+            counter += 1
+
+        # Fallback email if Hack Club didn't expose one
+        user_email = email or f"{username}@hackclub.local"
+
+        user = User(
+            username=username,
+            email=user_email,
+            hackclub_id=hackclub_id,
+        )
+        db.add(user)
+
+    await db.commit()
+    await db.refresh(user)
+
+    jwt_token = create_access_token(
+        {"sub": user.id},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    redirect = RedirectResponse(url=f"{settings.FRONTEND_URL}/editor")
+    _set_auth_cookie(redirect, jwt_token)
+    return redirect

@@ -35,6 +35,11 @@ async def lifespan(_app: FastAPI):
             await conn.execute(text("ALTER TABLE users ADD COLUMN is_admin BOOLEAN NOT NULL DEFAULT 0"))
         except Exception:
             pass  # Column already exists
+        # Add hackclub_id column for Hack Club OAuth
+        try:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN hackclub_id VARCHAR"))
+        except Exception:
+            pass  # Column already exists
     yield
 
 

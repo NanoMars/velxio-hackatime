@@ -63,34 +63,56 @@ export const SimulatorCanvas = () => {
   // Active board (for WiFi/BLE status display)
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
-  // Auto-open the IoT Gateway in a new tab the first time each board reaches
-  // wifi:got_ip. The serial output tells users to "Open the IoT Gateway link",
-  // so we do it for them: when the ESP32 connects and gets an IP, open the
-  // proxied web server URL automatically. We remember which boards we've
-  // already auto-opened in a ref so restarts / reconnects don't spam tabs.
-  const autoOpenedRef = useRef<Set<string>>(new Set());
+  // IoT Gateway ready notification. When an ESP32 board reaches
+  // wifi:got_ip we surface a dismissible banner with a button that
+  // opens the gateway URL in a new tab (popup blockers ignore
+  // window.open outside a user gesture, so we don't auto-open). We
+  // track the state per board so switching boards keeps the right
+  // notification visible, and we auto-clear when the board stops
+  // running so the next run shows a fresh notification.
+  const [gatewayReadyBoards, setGatewayReadyBoards] = useState<Record<string, { url: string; ip: string }>>({});
+
   useEffect(() => {
     if (!activeBoard) return;
     if (!isEsp32Kind(activeBoard.boardKind)) return;
     if (activeBoard.wifiStatus?.status !== 'got_ip') return;
-    if (autoOpenedRef.current.has(activeBoard.id)) return;
+    if (gatewayReadyBoards[activeBoard.id]) return;
 
     const sessionId = getTabSessionId();
     const clientId = `${sessionId}::${activeBoard.id}`;
     const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
     const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
 
-    autoOpenedRef.current.add(activeBoard.id);
-    window.open(gatewayUrl, '_blank', 'noopener,noreferrer');
-  }, [activeBoard?.id, activeBoard?.wifiStatus?.status]);
+    setGatewayReadyBoards((prev) => ({
+      ...prev,
+      [activeBoard.id]: {
+        url: gatewayUrl,
+        ip: activeBoard.wifiStatus?.ip ?? '',
+      },
+    }));
+  }, [activeBoard?.id, activeBoard?.wifiStatus?.status, activeBoard?.wifiStatus?.ip, gatewayReadyBoards]);
 
-  // Reset auto-open tracking when a board stops running so a fresh
-  // run (after clicking Stop + Run) will open a fresh tab.
+  // Clear the notification when the board stops running so the next
+  // run (after clicking Stop + Run) will show a fresh notification.
   useEffect(() => {
-    if (activeBoard && !activeBoard.running) {
-      autoOpenedRef.current.delete(activeBoard.id);
+    if (activeBoard && !activeBoard.running && gatewayReadyBoards[activeBoard.id]) {
+      setGatewayReadyBoards((prev) => {
+        const next = { ...prev };
+        delete next[activeBoard.id];
+        return next;
+      });
     }
-  }, [activeBoard?.id, activeBoard?.running]);
+  }, [activeBoard?.id, activeBoard?.running, gatewayReadyBoards]);
+
+  const dismissGatewayReady = (boardId: string) => {
+    setGatewayReadyBoards((prev) => {
+      const next = { ...prev };
+      delete next[boardId];
+      return next;
+    });
+  };
+
+  const activeGatewayNotice = activeBoard ? gatewayReadyBoards[activeBoard.id] : undefined;
 
   // Legacy derived values for components that still use them
   const boardType = useSimulatorStore((s) => s.boardType);
@@ -1268,6 +1290,62 @@ export const SimulatorCanvas = () => {
             }}
           >
             Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* IoT Gateway ready notification — appears when an ESP32 board gets an IP */}
+      {activeGatewayNotice && activeBoard && (
+        <div style={{
+          position: 'absolute', top: esp32CrashBoardId ? 56 : 8, left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 1000, background: '#16a34a', color: '#fff',
+          padding: '10px 14px 10px 18px', borderRadius: 8, display: 'flex',
+          alignItems: 'center', gap: 14, fontSize: 13,
+          boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+          maxWidth: 'calc(100% - 32px)',
+        }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+            <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+            <circle cx="12" cy="20" r="1" />
+          </svg>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+            <strong style={{ fontSize: 13 }}>ESP32 web server is ready</strong>
+            <span style={{ fontSize: 11, opacity: 0.85 }}>
+              {activeGatewayNotice.ip
+                ? `Listening at ${activeGatewayNotice.ip} — click to open in a new tab`
+                : 'Click to open in a new tab'}
+            </span>
+          </div>
+          <button
+            onClick={() => window.open(activeGatewayNotice.url, '_blank', 'noopener,noreferrer')}
+            style={{
+              background: '#fff', color: '#16a34a', border: 'none',
+              borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, flexShrink: 0,
+            }}
+          >
+            Open
+          </button>
+          <button
+            onClick={() => dismissGatewayReady(activeBoard.id)}
+            title="Dismiss"
+            aria-label="Dismiss"
+            style={{
+              background: 'transparent', border: 'none', color: '#fff',
+              cursor: 'pointer', padding: 4, display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              borderRadius: 4, opacity: 0.8, flexShrink: 0,
+            }}
+            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
+            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.8'; }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
       )}

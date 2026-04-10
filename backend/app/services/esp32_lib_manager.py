@@ -50,14 +50,24 @@ logger = logging.getLogger(__name__)
 _SERVICES_DIR = pathlib.Path(__file__).parent
 
 # Xtensa library (ESP32, ESP32-S3)
-_LIB_XTENSA_NAME = 'libqemu-xtensa.dll' if sys.platform == 'win32' else 'libqemu-xtensa.so'
+if sys.platform == 'win32':
+    _LIB_XTENSA_NAME = 'libqemu-xtensa.dll'
+elif sys.platform == 'darwin':
+    _LIB_XTENSA_NAME = 'libqemu-xtensa.dylib'
+else:
+    _LIB_XTENSA_NAME = 'libqemu-xtensa.so'
 _DEFAULT_LIB_XTENSA = str(_SERVICES_DIR / _LIB_XTENSA_NAME)
 LIB_PATH: str = os.environ.get('QEMU_ESP32_LIB', '') or (
     _DEFAULT_LIB_XTENSA if os.path.isfile(_DEFAULT_LIB_XTENSA) else ''
 )
 
 # RISC-V library (ESP32-C3)
-_LIB_RISCV_NAME = 'libqemu-riscv32.dll' if sys.platform == 'win32' else 'libqemu-riscv32.so'
+if sys.platform == 'win32':
+    _LIB_RISCV_NAME = 'libqemu-riscv32.dll'
+elif sys.platform == 'darwin':
+    _LIB_RISCV_NAME = 'libqemu-riscv32.dylib'
+else:
+    _LIB_RISCV_NAME = 'libqemu-riscv32.so'
 _DEFAULT_LIB_RISCV = str(_SERVICES_DIR / _LIB_RISCV_NAME)
 LIB_RISCV_PATH: str = os.environ.get('QEMU_RISCV32_LIB', '') or (
     _DEFAULT_LIB_RISCV if os.path.isfile(_DEFAULT_LIB_RISCV) else ''
@@ -127,6 +137,16 @@ class _WorkerInstance:
     running:    bool = True
     wifi_enabled: bool = False
     wifi_hostfwd_port: int = 0
+    # Rolling scan buffer for the WiFi / BLE status parser. The regular
+    # _UartBuffer flushes on '.' (to avoid buffering "..." progress dots),
+    # which fragments lines like "sta ip: 192.168.4.15" into separate
+    # chunks and prevents the got_ip regex from matching. We keep a
+    # parallel buffer that only scans when it sees a newline, so the
+    # parser always sees complete lines.
+    wifi_scan_buf: str = ''
+    # Tracks the last wifi status we dispatched so we don't flood the
+    # frontend with duplicate events every time a matching line repeats.
+    last_wifi_status: str = ''
 
 
 # ── Manager ───────────────────────────────────────────────────────────────────
@@ -464,14 +484,36 @@ class EspLibManager:
                             self._dispatch(inst, 'serial_output', {
                                 'data': text, 'uart': uart_id,
                             })
-                            # Parse WiFi/BLE status from UART0 output
+                            # Parse WiFi/BLE status from UART0 output.
+                            # We append to a rolling scan buffer instead of
+                            # parsing `text` directly — the serial buffer
+                            # fragments lines on '.' to avoid "..." buildup,
+                            # but the wifi parser needs intact lines to
+                            # match patterns like "sta ip: 192.168.4.15".
                             if uart_id == 0 and inst.wifi_enabled:
-                                from app.services.wifi_status_parser import parse_serial_text
-                                wifi_evts, ble_evts = parse_serial_text(text)
-                                for we in wifi_evts:
-                                    self._dispatch(inst, 'wifi_status', dict(we))
-                                for be in ble_evts:
-                                    self._dispatch(inst, 'ble_status', dict(be))
+                                from app.services.wifi_status_parser import (
+                                    parse_serial_text,
+                                )
+                                inst.wifi_scan_buf += text
+                                # Scan complete lines only; keep any trailing
+                                # partial line for the next chunk.
+                                last_nl = inst.wifi_scan_buf.rfind('\n')
+                                if last_nl >= 0:
+                                    scan_text = inst.wifi_scan_buf[: last_nl + 1]
+                                    inst.wifi_scan_buf = inst.wifi_scan_buf[last_nl + 1:]
+                                    wifi_evts, ble_evts = parse_serial_text(scan_text)
+                                    for we in wifi_evts:
+                                        new_status = we.get('status', '')
+                                        # Dedupe: only dispatch transitions
+                                        if new_status and new_status != inst.last_wifi_status:
+                                            inst.last_wifi_status = new_status
+                                            self._dispatch(inst, 'wifi_status', dict(we))
+                                    for be in ble_evts:
+                                        self._dispatch(inst, 'ble_status', dict(be))
+                                # Cap the buffer so runaway output with no
+                                # newlines doesn't grow unbounded.
+                                if len(inst.wifi_scan_buf) > 8192:
+                                    inst.wifi_scan_buf = inst.wifi_scan_buf[-4096:]
                 elif etype:
                     self._dispatch(inst, etype, event)
 

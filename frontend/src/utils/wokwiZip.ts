@@ -14,6 +14,7 @@
 
 import JSZip from 'jszip';
 import type { Wire } from '../types/wire';
+import type { BoardKind } from '../types/board';
 
 // ── Type definitions ──────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ export interface VelxioComponent {
 }
 
 export interface ImportResult {
-  boardType: 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico';
+  boardType: BoardKind;
   boardPosition: { x: number; y: number };
   components: VelxioComponent[];
   wires: Wire[];
@@ -54,29 +55,116 @@ export interface ImportResult {
 
 // ── Board mappings ────────────────────────────────────────────────────────────
 
-// Wokwi board type → Velxio boardType
-const WOKWI_TYPE_TO_BOARD: Record<string, 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico'> = {
-  'wokwi-arduino-uno': 'arduino-uno',
-  'wokwi-arduino-nano': 'arduino-nano',
-  'wokwi-arduino-mega': 'arduino-mega',
-  'wokwi-raspberry-pi-pico': 'raspberry-pi-pico',
+// Wokwi board type → Velxio BoardKind.
+// Wokwi uses both "wokwi-*" (bare elements) and "board-*" (full dev boards) prefixes.
+// Keep both forms so exports from Wokwi, Velxio, and PlatformIO all round-trip cleanly.
+const WOKWI_TYPE_TO_BOARD: Record<string, BoardKind> = {
+  // AVR
+  'wokwi-arduino-uno':            'arduino-uno',
+  'board-arduino-uno':            'arduino-uno',
+  'wokwi-arduino-nano':           'arduino-nano',
+  'board-arduino-nano':           'arduino-nano',
+  'wokwi-arduino-mega':           'arduino-mega',
+  'board-arduino-mega':           'arduino-mega',
+  'wokwi-attiny85':               'attiny85',
+  'board-attiny85':               'attiny85',
+  // RP2040
+  'wokwi-raspberry-pi-pico':      'raspberry-pi-pico',
+  'board-pi-pico':                'raspberry-pi-pico',
+  'board-pi-pico-w':              'pi-pico-w',
+  // Raspberry Pi 3
+  'board-pi-3b':                  'raspberry-pi-3',
+  'board-raspberry-pi-3':         'raspberry-pi-3',
+  // ESP32 (Xtensa LX6)
+  'board-esp32-devkit-v1':        'esp32',
+  'wokwi-esp32-devkit-v1':        'esp32',
+  'board-esp32-devkit-c-v4':      'esp32-devkit-c-v4',
+  'board-esp32-cam':              'esp32-cam',
+  'board-wemos-lolin32-lite':     'wemos-lolin32-lite',
+  // ESP32-S3 (Xtensa LX7)
+  'board-esp32-s3-devkitc-1':     'esp32-s3',
+  'board-esp32-s3':               'esp32-s3',
+  'board-xiao-esp32-s3':          'xiao-esp32-s3',
+  'board-arduino-nano-esp32':     'arduino-nano-esp32',
+  // ESP32-C3 (RISC-V)
+  'board-esp32-c3-devkitm-1':     'esp32-c3',
+  'board-esp32-c3':               'esp32-c3',
+  'board-xiao-esp32-c3':          'xiao-esp32-c3',
+  'board-aitewinrobot-esp32c3-supermini': 'aitewinrobot-esp32c3-supermini',
 };
 
-// Velxio boardType → Wokwi type
-const BOARD_TO_WOKWI_TYPE: Record<string, string> = {
-  'arduino-uno': 'wokwi-arduino-uno',
-  'arduino-nano': 'wokwi-arduino-nano',
-  'arduino-mega': 'wokwi-arduino-mega',
-  'raspberry-pi-pico': 'wokwi-raspberry-pi-pico',
+// Velxio BoardKind → Wokwi type (preferred export format)
+const BOARD_TO_WOKWI_TYPE: Record<BoardKind, string> = {
+  'arduino-uno':                  'wokwi-arduino-uno',
+  'arduino-nano':                 'wokwi-arduino-nano',
+  'arduino-mega':                 'wokwi-arduino-mega',
+  'attiny85':                     'wokwi-attiny85',
+  'raspberry-pi-pico':            'board-pi-pico',
+  'pi-pico-w':                    'board-pi-pico-w',
+  'raspberry-pi-3':               'board-pi-3b',
+  'esp32':                        'board-esp32-devkit-v1',
+  'esp32-devkit-c-v4':            'board-esp32-devkit-c-v4',
+  'esp32-cam':                    'board-esp32-cam',
+  'wemos-lolin32-lite':           'board-wemos-lolin32-lite',
+  'esp32-s3':                     'board-esp32-s3-devkitc-1',
+  'xiao-esp32-s3':                'board-xiao-esp32-s3',
+  'arduino-nano-esp32':           'board-arduino-nano-esp32',
+  'esp32-c3':                     'board-esp32-c3-devkitm-1',
+  'xiao-esp32-c3':                'board-xiao-esp32-c3',
+  'aitewinrobot-esp32c3-supermini': 'board-aitewinrobot-esp32c3-supermini',
 };
 
-// Velxio boardType → default Wokwi part id
-const BOARD_TO_WOKWI_ID: Record<string, string> = {
-  'arduino-uno': 'uno',
-  'arduino-nano': 'nano',
-  'arduino-mega': 'mega',
-  'raspberry-pi-pico': 'pico',
+// Velxio BoardKind → default Wokwi part id
+const BOARD_TO_WOKWI_ID: Record<BoardKind, string> = {
+  'arduino-uno':                  'uno',
+  'arduino-nano':                 'nano',
+  'arduino-mega':                 'mega',
+  'attiny85':                     'attiny85',
+  'raspberry-pi-pico':            'pico',
+  'pi-pico-w':                    'picow',
+  'raspberry-pi-3':               'pi3',
+  'esp32':                        'esp',
+  'esp32-devkit-c-v4':            'esp',
+  'esp32-cam':                    'esp',
+  'wemos-lolin32-lite':           'esp',
+  'esp32-s3':                     'esp',
+  'xiao-esp32-s3':                'esp',
+  'arduino-nano-esp32':           'esp',
+  'esp32-c3':                     'esp',
+  'xiao-esp32-c3':                'esp',
+  'aitewinrobot-esp32c3-supermini': 'esp',
 };
+
+// ── Fallback: detect board from wokwi-project.txt (PlatformIO format) ────────
+// Many Wokwi/PlatformIO exports include a wokwi-project.txt that names the board
+// in [env:xxx] / board = yyy lines. This is a defensive fallback when diagram.json
+// doesn't have a recognized part.
+const PLATFORMIO_BOARD_TO_VELXIO: Record<string, BoardKind> = {
+  'esp32dev':        'esp32',
+  'esp32devkitv1':   'esp32',
+  'esp32doit-devkit-v1': 'esp32',
+  'esp32cam':        'esp32-cam',
+  'lolin32_lite':    'wemos-lolin32-lite',
+  'esp32-s3-devkitc-1': 'esp32-s3',
+  'seeed_xiao_esp32s3': 'xiao-esp32-s3',
+  'arduino_nano_esp32': 'arduino-nano-esp32',
+  'esp32-c3-devkitm-1': 'esp32-c3',
+  'seeed_xiao_esp32c3': 'xiao-esp32-c3',
+  'pico':            'raspberry-pi-pico',
+  'pico_w':          'pi-pico-w',
+  'uno':             'arduino-uno',
+  'nano':            'arduino-nano',
+  'megaatmega2560':  'arduino-mega',
+  'attiny85':        'attiny85',
+};
+
+function detectBoardFromProjectTxt(content: string): BoardKind | null {
+  // Look for: board = <name>
+  const match = content.match(/^\s*board\s*=\s*([a-zA-Z0-9_\-]+)/m);
+  if (!match) return null;
+  const boardName = match[1].toLowerCase();
+  return PLATFORMIO_BOARD_TO_VELXIO[boardName] ?? null;
+}
 
 // ── Pin name aliases ─────────────────────────────────────────────────────────
 
@@ -156,7 +244,7 @@ export async function exportToWokwiZip(
   files: Array<{ name: string; content: string }>,
   components: VelxioComponent[],
   wires: Wire[],
-  boardType: string,
+  boardType: BoardKind,
   projectName: string,
   boardPosition: { x: number; y: number } = { x: 50, y: 50 },
 ): Promise<void> {
@@ -178,10 +266,19 @@ export async function exportToWokwiZip(
     })),
   ];
 
-  // Build connections
+  // Internal Velxio component-ids that refer to "the board" (not user-placed parts).
+  // These are the DOM ids used by the board element, which varies per board kind.
+  const BOARD_INTERNAL_IDS = new Set([
+    'arduino-uno', 'arduino-nano', 'arduino-mega', 'attiny85',
+    'nano-rp2040', 'pi-pico', 'pi-pico-w',
+    'esp32', 'esp32-s3', 'esp32-c3',
+  ]);
+
+  // Build connections — remap any wire endpoint that refers to the internal
+  // board id to the exported boardId so the exported zip uses a single part id.
   const connections: [string, string, string, string[]][] = wires.map((w) => {
-    const isBoardStart = w.start.componentId === 'arduino-uno' || w.start.componentId === 'arduino-nano' || w.start.componentId === 'nano-rp2040';
-    const isBoardEnd = w.end.componentId === 'arduino-uno' || w.end.componentId === 'arduino-nano' || w.end.componentId === 'nano-rp2040';
+    const isBoardStart = BOARD_INTERNAL_IDS.has(w.start.componentId);
+    const isBoardEnd = BOARD_INTERNAL_IDS.has(w.end.componentId);
     const startId = isBoardStart ? boardId : w.start.componentId;
     const endId = isBoardEnd ? boardId : w.end.componentId;
     return [
@@ -230,19 +327,31 @@ export async function importFromWokwiZip(file: File): Promise<ImportResult> {
   const diagramText = await diagramEntry.async('string');
   const diagram: WokwiDiagram = JSON.parse(diagramText);
 
-  // Detect board
+  // Detect board from diagram.json first (preferred — gives us position too)
   const boardPart = diagram.parts.find((p) => WOKWI_TYPE_TO_BOARD[p.type]);
-  const boardType = boardPart ? WOKWI_TYPE_TO_BOARD[boardPart.type] : 'arduino-uno';
-  const boardId = boardPart?.id ?? 'uno';
+  let boardType: BoardKind | null = boardPart ? WOKWI_TYPE_TO_BOARD[boardPart.type] : null;
+
+  // Fallback 1: wokwi-project.txt (PlatformIO format with board = xxx)
+  if (!boardType) {
+    const projectTxtEntry = zip.file('wokwi-project.txt');
+    if (projectTxtEntry) {
+      boardType = detectBoardFromProjectTxt(await projectTxtEntry.async('string'));
+    }
+  }
+
+  // Fallback 2: arduino-uno (last resort)
+  if (!boardType) boardType = 'arduino-uno';
+
+  const boardId = boardPart?.id ?? BOARD_TO_WOKWI_ID[boardType] ?? 'uno';
 
   // Velxio internal component ID for the board element (must match DOM element id)
   const VELXIO_BOARD_ID: Record<string, string> = {
-    'arduino-uno': 'arduino-uno',
-    'arduino-nano': 'arduino-nano',
-    'arduino-mega': 'arduino-mega',
+    'arduino-uno':      'arduino-uno',
+    'arduino-nano':     'arduino-nano',
+    'arduino-mega':     'arduino-mega',
     'raspberry-pi-pico': 'nano-rp2040',
   };
-  const velxioBoardId = VELXIO_BOARD_ID[boardType] ?? 'arduino-uno';
+  const velxioBoardId = VELXIO_BOARD_ID[boardType] ?? boardType;
 
   // Board position from diagram. Apply a minimum offset so the board is never
   // crammed against the canvas top-left corner (Wokwi diagrams often use 0,0).

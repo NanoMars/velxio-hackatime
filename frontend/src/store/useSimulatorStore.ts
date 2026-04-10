@@ -31,21 +31,12 @@ const SENSOR_COMPONENT_MAP: Record<string, {
 };
 
 // ── Legacy type aliases (keep external consumers working) ──────────────────
-export type BoardType = 'arduino-uno' | 'arduino-nano' | 'arduino-mega' | 'raspberry-pi-pico';
-
-export const BOARD_FQBN: Record<BoardType, string> = {
-  'arduino-uno': 'arduino:avr:uno',
-  'arduino-nano': 'arduino:avr:nano:cpu=atmega328',
-  'arduino-mega': 'arduino:avr:mega',
-  'raspberry-pi-pico': 'rp2040:rp2040:rpipico',
-};
-
-export const BOARD_LABELS: Record<BoardType, string> = {
-  'arduino-uno': 'Arduino Uno',
-  'arduino-nano': 'Arduino Nano',
-  'arduino-mega': 'Arduino Mega 2560',
-  'raspberry-pi-pico': 'Raspberry Pi Pico',
-};
+// BoardType used to be limited to 4 boards; it's now an alias for the full
+// BoardKind union so that import/export and the UI can address every board
+// we support (ESP32, ESP32-S3, ESP32-C3, etc.).
+// For the canonical FQBN / label maps, use BOARD_KIND_FQBN / BOARD_KIND_LABELS
+// from types/board.ts.
+export type BoardType = BoardKind;
 
 export const DEFAULT_BOARD_POSITION = { x: 50, y: 50 };
 export const ARDUINO_POSITION = DEFAULT_BOARD_POSITION;
@@ -527,7 +518,7 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
       set({
         activeBoardId: boardId,
         // Sync legacy flat fields to this board's values
-        boardType: (board.boardKind === 'raspberry-pi-3' ? 'arduino-uno' : board.boardKind) as BoardType,
+        boardType: board.boardKind,
         boardPosition: { x: board.x, y: board.y },
         simulator: simulatorMap.get(boardId) ?? null,
         pinManager: pinManagerMap.get(boardId) ?? legacyPinManager,

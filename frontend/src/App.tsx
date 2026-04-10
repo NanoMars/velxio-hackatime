@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { EditorPage } from './pages/EditorPage';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -32,6 +33,16 @@ function App() {
         <Route path="/:username/:projectName" element={<ProjectPage />} />
         <Route path="/:username" element={<UserProfilePage />} />
       </Routes>
+      {/* Unified toast stack — bottom-right, dark theme, rich colors
+          so success/error/info have distinct backgrounds out of the box. */}
+      <Toaster
+        position="bottom-right"
+        theme="dark"
+        richColors
+        closeButton
+        expand
+        visibleToasts={5}
+      />
     </Router>
   );
 }

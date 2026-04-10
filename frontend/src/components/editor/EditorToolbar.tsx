@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
 import { useEditorStore } from '../../store/useEditorStore';
 import { useSimulatorStore } from '../../store/useSimulatorStore';
 import type { BoardKind } from '../../types/board';
@@ -14,6 +15,11 @@ import { exportToWokwiZip, importFromWokwiZip } from '../../utils/wokwiZip';
 import { readFirmwareFile } from '../../utils/firmwareLoader';
 import { trackCompileCode, trackRunSimulation, trackStopSimulation, trackResetSimulation, trackOpenLibraryManager } from '../../utils/analytics';
 import './EditorToolbar.css';
+
+// Stable toast IDs so we can update/dismiss the compile toast in place
+// instead of stacking duplicates.
+const TOAST_COMPILE = 'compile-status';
+const TOAST_MISSING_LIB = 'missing-library-hint';
 
 interface EditorToolbarProps {
   consoleOpen: boolean;
@@ -64,7 +70,6 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? boards[0];
   const [compiling, setCompiling] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [libManagerOpen, setLibManagerOpen] = useState(false);
   const [pendingLibraries, setPendingLibraries] = useState<string[]>([]);
   const [installModalOpen, setInstallModalOpen] = useState(false);
@@ -73,7 +78,6 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [overflowOpen, setOverflowOpen] = useState(false);
   const overflowMenuRef = useRef<HTMLDivElement>(null);
-  const [missingLibHint, setMissingLibHint] = useState(false);
 
   // (ResizeObserver removed — Library Manager is always visible now,
   // only import/export live in the overflow menu)
@@ -101,7 +105,8 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
   const handleCompile = async () => {
     setCompiling(true);
-    setMessage(null);
+    toast.dismiss(TOAST_COMPILE);
+    toast.dismiss(TOAST_MISSING_LIB);
     setConsoleOpen(true);
     trackCompileCode();
 
@@ -110,7 +115,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     // Raspberry Pi 3B doesn't need arduino-cli compilation
     if (kind === 'raspberry-pi-3') {
       addLog({ timestamp: new Date(), type: 'info', message: 'Raspberry Pi 3B: no compilation needed — run Python scripts directly.' });
-      setMessage({ type: 'success', text: 'Ready (no compilation needed)' });
+      toast.success('Ready (no compilation needed)', { id: TOAST_COMPILE });
       setCompiling(false);
       return;
     }
@@ -120,12 +125,13 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
     if (!fqbn) {
       addLog({ timestamp: new Date(), type: 'error', message: `No FQBN for board kind: ${kind}` });
-      setMessage({ type: 'error', text: 'Unknown board' });
+      toast.error('Unknown board', { id: TOAST_COMPILE });
       setCompiling(false);
       return;
     }
 
     addLog({ timestamp: new Date(), type: 'info', message: `Starting compilation for ${boardLabel} (${fqbn})...` });
+    toast.loading(`Compiling for ${boardLabel}…`, { id: TOAST_COMPILE });
 
     try {
       const sketchFiles = files.map((f) => ({ name: f.name, content: f.content }));
@@ -142,21 +148,45 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             updateBoard(activeBoardId, { hasWifi: result.has_wifi });
           }
         }
-        setMessage({ type: 'success', text: 'Compiled successfully' });
+        toast.success('Compiled successfully', { id: TOAST_COMPILE });
         markCompiled();
-        setMissingLibHint(false);
       } else {
         const errText = result.error || result.stderr || 'Compile failed';
-        setMessage({ type: 'error', text: errText });
-        // Detect missing library errors — common patterns:
-        // "No such file or directory" for #include, "fatal error: XXX.h"
+        // Truncate long compiler errors for the toast — full output lives in
+        // the Output panel so the toast can stay small.
+        const short = errText.length > 120 ? errText.slice(0, 120) + '…' : errText;
+        toast.error('Compile failed', {
+          id: TOAST_COMPILE,
+          description: short,
+          duration: Infinity,
+        });
+        // Detect missing library errors and show a dedicated toast with an
+        // action button to open the Library Manager.
         const looksLikeMissingLib = /No such file or directory|fatal error:.*\.h|library not found/i.test(errText);
-        setMissingLibHint(looksLikeMissingLib);
+        if (looksLikeMissingLib) {
+          toast.info('Missing library?', {
+            id: TOAST_MISSING_LIB,
+            description: 'Install it from the Library Manager.',
+            duration: Infinity,
+            action: {
+              label: 'Open Library Manager',
+              onClick: () => {
+                trackOpenLibraryManager();
+                setLibManagerOpen(true);
+                toast.dismiss(TOAST_MISSING_LIB);
+              },
+            },
+          });
+        }
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Compile failed';
       addLog({ timestamp: new Date(), type: 'error', message: errMsg });
-      setMessage({ type: 'error', text: errMsg });
+      toast.error('Compile failed', {
+        id: TOAST_COMPILE,
+        description: errMsg,
+        duration: Infinity,
+      });
     } finally {
       setCompiling(false);
     }
@@ -180,7 +210,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
             autoRunAfterCompile.current = false;
             trackRunSimulation(updatedBoard.boardKind);
             startBoard(activeBoardId);
-            setMessage(null);
+            toast.dismiss(TOAST_COMPILE);
           } else {
             autoRunAfterCompile.current = false;
           }
@@ -188,7 +218,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         }
         trackRunSimulation(board?.boardKind);
         startBoard(activeBoardId);
-        setMessage(null);
+        toast.dismiss(TOAST_COMPILE);
         return;
       }
 
@@ -202,7 +232,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
           autoRunAfterCompile.current = false;
           trackRunSimulation(updatedBoard.boardKind);
           startBoard(activeBoardId);
-          setMessage(null);
+          toast.dismiss(TOAST_COMPILE);
         } else {
           autoRunAfterCompile.current = false;
         }
@@ -211,7 +241,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
 
       trackRunSimulation(board?.boardKind);
       startBoard(activeBoardId);
-      setMessage(null);
+      toast.dismiss(TOAST_COMPILE);
       return;
     }
 
@@ -224,14 +254,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         autoRunAfterCompile.current = false;
         trackRunSimulation();
         startSimulation();
-        setMessage(null);
+        toast.dismiss(TOAST_COMPILE);
       } else {
         autoRunAfterCompile.current = false;
       }
     } else {
       trackRunSimulation();
       startSimulation();
-      setMessage(null);
+      toast.dismiss(TOAST_COMPILE);
     }
   };
 
@@ -239,14 +269,14 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     trackStopSimulation();
     if (activeBoardId) stopBoard(activeBoardId);
     else stopSimulation();
-    setMessage(null);
+    toast.dismiss(TOAST_COMPILE);
   };
 
   const handleReset = () => {
     trackResetSimulation();
     if (activeBoardId) resetBoard(activeBoardId);
     else resetSimulation();
-    setMessage(null);
+    toast.dismiss(TOAST_COMPILE);
   };
 
   const handleCompileAll = async () => {
@@ -321,8 +351,11 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       const { components, wires, boardPosition, boardType: legacyBoardType } = useSimulatorStore.getState();
       const projectName = files.find((f) => f.name.endsWith('.ino'))?.name.replace('.ino', '') || 'velxio-project';
       await exportToWokwiZip(files, components, wires, legacyBoardType, projectName, boardPosition);
+      toast.success('Exported project');
     } catch (err) {
-      setMessage({ type: 'error', text: 'Export failed.' });
+      toast.error('Export failed', {
+        description: err instanceof Error ? err.message : undefined,
+      });
     }
   };
 
@@ -337,7 +370,7 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
     try {
       const boardKind = activeBoard?.boardKind;
       if (!boardKind) {
-        setMessage({ type: 'error', text: 'No board selected' });
+        toast.error('No board selected');
         return;
       }
 
@@ -358,12 +391,12 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         compileBoardProgram(activeBoardId, result.program);
         markCompiled();
         addLog({ timestamp: new Date(), type: 'info', message: result.message });
-        setMessage({ type: 'success', text: `Firmware loaded: ${file.name}` });
+        toast.success('Firmware loaded', { description: file.name });
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to load firmware';
       addLog({ timestamp: new Date(), type: 'error', message: errMsg });
-      setMessage({ type: 'error', text: errMsg });
+      toast.error('Failed to load firmware', { description: errMsg });
     }
   };
 
@@ -382,13 +415,13 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       setComponents(result.components);
       setWires(result.wires);
       if (result.files.length > 0) loadFiles(result.files);
-      setMessage({ type: 'success', text: `Imported ${file.name}` });
+      toast.success('Imported project', { description: file.name });
       if (result.libraries.length > 0) {
         setPendingLibraries(result.libraries);
         setInstallModalOpen(true);
       }
     } catch (err: any) {
-      setMessage({ type: 'error', text: err?.message || 'Import failed.' });
+      toast.error('Import failed', { description: err?.message });
     }
   };
 
@@ -510,23 +543,8 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
         </div>
 
         <div className="toolbar-group toolbar-group-right">
-          {/* Status message */}
-          {message && (
-            <span className={`tb-status tb-status-${message.type}`} title={message.text}>
-              {message.type === 'success' ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="10" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="12" y1="16" x2="12.01" y2="16" />
-                </svg>
-              )}
-              <span className="tb-status-text">{message.text}</span>
-            </span>
-          )}
+          {/* Status messages now live in the global toaster (bottom-right).
+              The old inline tb-status span was removed in the sonner migration. */}
 
           {/* Hidden file input for import (always present) */}
           <input
@@ -630,28 +648,11 @@ export const EditorToolbar = ({ consoleOpen, setConsoleOpen, compileLogs: _compi
       </div>
       </div>
 
-      {/* Error detail bar */}
-      {message?.type === 'error' && message.text.length > 40 && !consoleOpen && (
-        <div className="toolbar-error-detail">{message.text}</div>
-      )}
-
-      {/* Missing library hint */}
-      {missingLibHint && (
-        <div className="tb-lib-hint">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="10" />
-            <line x1="12" y1="8" x2="12" y2="12" />
-            <line x1="12" y1="16" x2="12.01" y2="16" />
-          </svg>
-          <span>Missing library? Install it from the</span>
-          <button className="tb-lib-hint-btn" onClick={() => { trackOpenLibraryManager(); setLibManagerOpen(true); setMissingLibHint(false); }}>
-            Library Manager
-          </button>
-          <button className="tb-lib-hint-close" onClick={() => setMissingLibHint(false)} title="Dismiss">
-            &times;
-          </button>
-        </div>
-      )}
+      {/* Error detail bar and missing-library hint banner were removed in
+          the sonner migration — compile errors now surface as a sticky
+          error toast (with description) and missing-library detection
+          shows a separate info toast with an "Open Library Manager"
+          action button, both rendered by the global <Toaster>. */}
 
       <LibraryManagerModal isOpen={libManagerOpen} onClose={() => setLibManagerOpen(false)} />
       <InstallLibrariesModal

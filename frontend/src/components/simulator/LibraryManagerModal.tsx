@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'sonner';
 import { searchLibraries, installLibrary, getInstalledLibraries } from '../../services/libraryService';
 import type { ArduinoLibrary, InstalledLibrary } from '../../services/libraryService';
 import { trackInstallLibrary } from '../../utils/analytics';
@@ -19,7 +20,6 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
     const [loadingSearch, setLoadingSearch] = useState(false);
     const [loadingInstalled, setLoadingInstalled] = useState(false);
     const [installingLib, setInstallingLib] = useState<string | null>(null);
-    const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const fetchInstalled = useCallback(async () => {
@@ -28,7 +28,9 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
             const libs = await getInstalledLibraries();
             setInstalledLibraries(libs);
         } catch (e: unknown) {
-            setStatusMsg({ type: 'error', text: e instanceof Error ? e.message : 'Failed to load installed libraries' });
+            toast.error('Failed to load installed libraries', {
+                description: e instanceof Error ? e.message : undefined,
+            });
         } finally {
             setLoadingInstalled(false);
         }
@@ -39,7 +41,6 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
         if (!isOpen) {
             setSearchQuery('');
             setSearchResults([]);
-            setStatusMsg(null);
         }
     }, [isOpen]);
 
@@ -59,12 +60,13 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
         const delay = searchQuery ? 400 : 0;
         debounceRef.current = setTimeout(async () => {
             setLoadingSearch(true);
-            setStatusMsg(null);
             try {
                 const results = await searchLibraries(searchQuery);
                 setSearchResults(results);
             } catch (e: unknown) {
-                setStatusMsg({ type: 'error', text: e instanceof Error ? e.message : 'Search failed' });
+                toast.error('Library search failed', {
+                    description: e instanceof Error ? e.message : undefined,
+                });
                 setSearchResults([]);
             } finally {
                 setLoadingSearch(false);
@@ -76,18 +78,24 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
 
     const handleInstall = async (libName: string) => {
         setInstallingLib(libName);
-        setStatusMsg(null);
+        const installToastId = toast.loading(`Installing ${libName}…`);
         try {
             const result = await installLibrary(libName);
             if (result.success) {
                 trackInstallLibrary(libName);
-                setStatusMsg({ type: 'success', text: `"${libName}" installed successfully!` });
+                toast.success(`Installed ${libName}`, { id: installToastId });
                 fetchInstalled(); // Refresh installed list so search tab reflects new state
             } else {
-                setStatusMsg({ type: 'error', text: result.error || `Failed to install "${libName}"` });
+                toast.error(`Failed to install ${libName}`, {
+                    id: installToastId,
+                    description: result.error,
+                });
             }
         } catch (e: unknown) {
-            setStatusMsg({ type: 'error', text: e instanceof Error ? e.message : 'Installation failed' });
+            toast.error(`Failed to install ${libName}`, {
+                id: installToastId,
+                description: e instanceof Error ? e.message : undefined,
+            });
         } finally {
             setInstallingLib(null);
         }
@@ -155,22 +163,8 @@ export const LibraryManagerModal: React.FC<LibraryManagerModalProps> = ({ isOpen
                     </button>
                 </div>
 
-                {/* Status bar */}
-                {statusMsg && (
-                    <div className={`lib-status ${statusMsg.type}`}>
-                        {statusMsg.type === 'success' ? (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                        ) : (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                                <line x1="18" y1="6" x2="6" y2="18" />
-                                <line x1="6" y1="6" x2="18" y2="18" />
-                            </svg>
-                        )}
-                        {statusMsg.text}
-                    </div>
-                )}
+                {/* Status messages now surface in the global toaster instead
+                    of an inline lib-status bar. */}
 
                 {/* Search Tab */}
                 {activeTab === 'search' && (

@@ -1,5 +1,6 @@
 import { useSimulatorStore, getEsp32Bridge } from '../../store/useSimulatorStore';
 import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { toast } from 'sonner';
 import { ESP32_ADC_PIN_MAP } from '../components-wokwi/Esp32Element';
 import { ComponentPickerModal } from '../ComponentPickerModal';
 import { ComponentPropertyDialog } from './ComponentPropertyDialog';
@@ -63,56 +64,53 @@ export const SimulatorCanvas = () => {
   // Active board (for WiFi/BLE status display)
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
-  // IoT Gateway ready notification. When an ESP32 board reaches
-  // wifi:got_ip we surface a dismissible banner with a button that
-  // opens the gateway URL in a new tab (popup blockers ignore
-  // window.open outside a user gesture, so we don't auto-open). We
-  // track the state per board so switching boards keeps the right
-  // notification visible, and we auto-clear when the board stops
-  // running so the next run shows a fresh notification.
-  const [gatewayReadyBoards, setGatewayReadyBoards] = useState<Record<string, { url: string; ip: string }>>({});
+  // IoT Gateway ready notification — surfaced as a sticky sonner toast
+  // when an ESP32 board reaches wifi:got_ip. We store a stable toast id
+  // per board so we can dismiss it when the board stops running and so
+  // that the notification doesn't duplicate across re-renders.
+  const gatewayToastsRef = useRef<Map<string, string | number>>(new Map());
 
   useEffect(() => {
     if (!activeBoard) return;
     if (!isEsp32Kind(activeBoard.boardKind)) return;
     if (activeBoard.wifiStatus?.status !== 'got_ip') return;
-    if (gatewayReadyBoards[activeBoard.id]) return;
+    if (gatewayToastsRef.current.has(activeBoard.id)) return;
 
     const sessionId = getTabSessionId();
     const clientId = `${sessionId}::${activeBoard.id}`;
     const backendBase = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8001/api';
     const gatewayUrl = `${backendBase}/gateway/${clientId}/`;
+    const ip = activeBoard.wifiStatus?.ip ?? '';
 
-    setGatewayReadyBoards((prev) => ({
-      ...prev,
-      [activeBoard.id]: {
-        url: gatewayUrl,
-        ip: activeBoard.wifiStatus?.ip ?? '',
+    const toastId = `gateway-ready-${activeBoard.id}`;
+    gatewayToastsRef.current.set(activeBoard.id, toastId);
+
+    toast.success('ESP32 web server is ready', {
+      id: toastId,
+      description: ip
+        ? `Listening at ${ip} — click to open the IoT Gateway in a new tab.`
+        : 'Click to open the IoT Gateway in a new tab.',
+      duration: Infinity,
+      action: {
+        label: 'Open',
+        onClick: () => {
+          window.open(gatewayUrl, '_blank', 'noopener,noreferrer');
+        },
       },
-    }));
-  }, [activeBoard?.id, activeBoard?.wifiStatus?.status, activeBoard?.wifiStatus?.ip, gatewayReadyBoards]);
+    });
+  }, [activeBoard?.id, activeBoard?.wifiStatus?.status, activeBoard?.wifiStatus?.ip, activeBoard?.boardKind]);
 
   // Clear the notification when the board stops running so the next
   // run (after clicking Stop + Run) will show a fresh notification.
   useEffect(() => {
-    if (activeBoard && !activeBoard.running && gatewayReadyBoards[activeBoard.id]) {
-      setGatewayReadyBoards((prev) => {
-        const next = { ...prev };
-        delete next[activeBoard.id];
-        return next;
-      });
+    if (!activeBoard) return;
+    if (activeBoard.running) return;
+    const existing = gatewayToastsRef.current.get(activeBoard.id);
+    if (existing !== undefined) {
+      toast.dismiss(existing);
+      gatewayToastsRef.current.delete(activeBoard.id);
     }
-  }, [activeBoard?.id, activeBoard?.running, gatewayReadyBoards]);
-
-  const dismissGatewayReady = (boardId: string) => {
-    setGatewayReadyBoards((prev) => {
-      const next = { ...prev };
-      delete next[boardId];
-      return next;
-    });
-  };
-
-  const activeGatewayNotice = activeBoard ? gatewayReadyBoards[activeBoard.id] : undefined;
+  }, [activeBoard?.id, activeBoard?.running]);
 
   // Legacy derived values for components that still use them
   const boardType = useSimulatorStore((s) => s.boardType);
@@ -137,9 +135,21 @@ export const SimulatorCanvas = () => {
   const oscilloscopeOpen = useOscilloscopeStore((s) => s.open);
   const toggleOscilloscope = useOscilloscopeStore((s) => s.toggleOscilloscope);
 
-  // ESP32 crash notification
+  // ESP32 crash notification — surfaced as a sticky error toast.
   const esp32CrashBoardId = useSimulatorStore((s) => s.esp32CrashBoardId);
   const dismissEsp32Crash = useSimulatorStore((s) => s.dismissEsp32Crash);
+
+  useEffect(() => {
+    if (!esp32CrashBoardId) return;
+    const id = `esp32-crash-${esp32CrashBoardId}`;
+    toast.error('ESP32 crash detected', {
+      id,
+      description: `Board ${esp32CrashBoardId} hit a cache error (IDF incompatibility).`,
+      duration: Infinity,
+      onDismiss: () => dismissEsp32Crash(),
+      onAutoClose: () => dismissEsp32Crash(),
+    });
+  }, [esp32CrashBoardId, dismissEsp32Crash]);
 
   // Component picker modal
   const [showComponentPicker, setShowComponentPicker] = useState(false);
@@ -1273,82 +1283,10 @@ export const SimulatorCanvas = () => {
 
   return (
     <div className="simulator-canvas-container">
-      {/* ESP32 crash notification */}
-      {esp32CrashBoardId && (
-        <div style={{
-          position: 'absolute', top: 8, left: '50%', transform: 'translateX(-50%)',
-          zIndex: 1000, background: '#c0392b', color: '#fff',
-          padding: '8px 16px', borderRadius: 6, display: 'flex', alignItems: 'center',
-          gap: 12, fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-        }}>
-          <span>ESP32 crash detected on board <strong>{esp32CrashBoardId}</strong> — cache error (IDF incompatibility)</span>
-          <button
-            onClick={dismissEsp32Crash}
-            style={{
-              background: 'transparent', border: '1px solid rgba(255,255,255,0.6)',
-              color: '#fff', borderRadius: 4, padding: '2px 8px', cursor: 'pointer',
-            }}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* IoT Gateway ready notification — appears when an ESP32 board gets an IP */}
-      {activeGatewayNotice && activeBoard && (
-        <div style={{
-          position: 'absolute', top: esp32CrashBoardId ? 56 : 8, left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 1000, background: '#16a34a', color: '#fff',
-          padding: '10px 14px 10px 18px', borderRadius: 8, display: 'flex',
-          alignItems: 'center', gap: 14, fontSize: 13,
-          boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
-          maxWidth: 'calc(100% - 32px)',
-        }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-            <path d="M5 12.55a11 11 0 0 1 14.08 0" />
-            <path d="M1.42 9a16 16 0 0 1 21.16 0" />
-            <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
-            <circle cx="12" cy="20" r="1" />
-          </svg>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-            <strong style={{ fontSize: 13 }}>ESP32 web server is ready</strong>
-            <span style={{ fontSize: 11, opacity: 0.85 }}>
-              {activeGatewayNotice.ip
-                ? `Listening at ${activeGatewayNotice.ip} — click to open in a new tab`
-                : 'Click to open in a new tab'}
-            </span>
-          </div>
-          <button
-            onClick={() => window.open(activeGatewayNotice.url, '_blank', 'noopener,noreferrer')}
-            style={{
-              background: '#fff', color: '#16a34a', border: 'none',
-              borderRadius: 6, padding: '6px 14px', cursor: 'pointer',
-              fontSize: 12, fontWeight: 600, flexShrink: 0,
-            }}
-          >
-            Open
-          </button>
-          <button
-            onClick={() => dismissGatewayReady(activeBoard.id)}
-            title="Dismiss"
-            aria-label="Dismiss"
-            style={{
-              background: 'transparent', border: 'none', color: '#fff',
-              cursor: 'pointer', padding: 4, display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              borderRadius: 4, opacity: 0.8, flexShrink: 0,
-            }}
-            onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
-            onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.opacity = '0.8'; }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18" />
-              <line x1="6" y1="6" x2="18" y2="18" />
-            </svg>
-          </button>
-        </div>
-      )}
+      {/* ESP32 crash notification and IoT Gateway ready banner were
+          migrated to the global sonner toaster (see the useEffect hooks
+          above). They now appear in the bottom-right stack with the
+          rest of the app's notifications. */}
 
       {/* Main Canvas */}
       <div className="simulator-canvas">

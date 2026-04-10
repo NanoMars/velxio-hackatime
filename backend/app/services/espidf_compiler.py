@@ -21,6 +21,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -89,32 +90,66 @@ class ESPIDFCompiler:
     def _arduino_user_libraries_dir(self) -> Path | None:
         """
         Locate the directory where `arduino-cli lib install` drops user libraries.
-        Uses `arduino-cli config dump` so we match whatever the library manager
-        is actually writing to. Returns None if arduino-cli is missing or the
-        config doesn't expose a user directory.
+
+        Strategy:
+          1. Ask `arduino-cli config dump` for the `directories.user` key.
+             On a minimal install (like the Velxio Docker image) this key is
+             usually absent.
+          2. Fall back to the platform-specific default used by arduino-cli
+             when no user dir is configured:
+                Linux   → ~/Arduino
+                macOS   → ~/Documents/Arduino
+                Windows → %USERPROFILE%\Documents\Arduino
+          3. As a last resort, scan a short list of known candidates.
+
+        Returns the path to the `libraries/` subdirectory if it exists, else None.
         """
+        candidates: list[Path] = []
+
+        # 1. Ask arduino-cli directly
         try:
             result = subprocess.run(
                 ['arduino-cli', 'config', 'dump', '--format', 'json'],
                 capture_output=True, text=True, encoding='utf-8', errors='replace',
                 timeout=10,
             )
-            if result.returncode != 0:
-                return None
-            import json
-            cfg = json.loads(result.stdout)
-            config_dict = cfg.get('config', cfg)
-            user_dir = (
-                config_dict.get('directories', {}).get('user', '')
-                or config_dict.get('directories', {}).get('sketchbook', '')
-            )
-            if not user_dir:
-                return None
-            libraries_dir = Path(user_dir) / 'libraries'
-            return libraries_dir if libraries_dir.is_dir() else None
+            if result.returncode == 0:
+                import json
+                cfg = json.loads(result.stdout)
+                config_dict = cfg.get('config', cfg)
+                user_dir = (
+                    config_dict.get('directories', {}).get('user', '')
+                    or config_dict.get('directories', {}).get('sketchbook', '')
+                )
+                if user_dir:
+                    candidates.append(Path(user_dir))
         except Exception as e:
-            logger.warning(f'[espidf] Could not resolve arduino-cli user dir: {e}')
-            return None
+            logger.warning(f'[espidf] arduino-cli config dump failed: {e}')
+
+        # 2. Platform defaults (matches arduino-cli's own hardcoded defaults)
+        home = Path.home()
+        if os.name == 'nt':
+            candidates.append(home / 'Documents' / 'Arduino')
+        elif sys.platform == 'darwin':
+            candidates.append(home / 'Documents' / 'Arduino')
+        else:
+            candidates.append(home / 'Arduino')
+
+        # 3. Known alternate candidates
+        candidates.extend([
+            Path('/root/Arduino'),
+            Path('/root/.arduino15'),
+            home / '.arduino15',
+        ])
+
+        for base in candidates:
+            libraries_dir = base / 'libraries'
+            if libraries_dir.is_dir():
+                logger.info(f'[espidf] arduino-cli libraries dir: {libraries_dir}')
+                return libraries_dir
+
+        logger.info(f'[espidf] no arduino-cli libraries dir found (tried {len(candidates)} locations)')
+        return None
 
     def _collect_installed_libraries(self) -> list[dict]:
         """
@@ -246,6 +281,34 @@ class ESPIDFCompiler:
         srcs_str = '\n        '.join(f'"{s}"' for s in srcs)
         includes_str = '\n        '.join(f'"{i}"' for i in includes)
 
+        # ── Compile-time fallbacks for undefined sdkconfig macros ───────────
+        # Newer versions of some Arduino libraries (AsyncTCP ≥3.x) reference
+        # Kconfig macros that don't exist when the matching option is
+        # disabled. For example, AsyncTCP unconditionally uses
+        # CONFIG_ESP_TASK_WDT_TIMEOUT_S even though we disable
+        # CONFIG_ESP_TASK_WDT in the QEMU sdkconfig. Provide sensible
+        # defaults so the source compiles without modification.
+        fallback_defines = [
+            ('CONFIG_ESP_TASK_WDT_TIMEOUT_S', '5'),
+            ('CONFIG_ASYNC_TCP_RUNNING_CORE', '1'),
+            ('CONFIG_ASYNC_TCP_USE_WDT', '0'),
+            ('CONFIG_ASYNC_TCP_QUEUE_SIZE', '64'),
+            ('CONFIG_ASYNC_TCP_STACK_SIZE', '8192'),
+            ('CONFIG_ASYNC_TCP_PRIORITY', '10'),
+        ]
+        # Emit each fallback as `-D` flags wrapped in `#ifndef` equivalents
+        # via `target_compile_options`. We use `-D name=value` with the
+        # understanding that if sdkconfig already defines it, ESP-IDF's own
+        # -D will win (last one on the command line). For safety we instead
+        # inject via a fallback header included through -include.
+        fallback_header = project_dir / 'main' / '_velxio_fallback_defines.h'
+        fallback_lines = ['/* Auto-generated fallback defines for undefined sdkconfig macros */']
+        for name, val in fallback_defines:
+            fallback_lines.append(f'#ifndef {name}')
+            fallback_lines.append(f'#define {name} {val}')
+            fallback_lines.append(f'#endif')
+        fallback_header.write_text('\n'.join(fallback_lines) + '\n', encoding='utf-8')
+
         content = f'''# Auto-generated by espidf_compiler.py — includes user sketch plus any
 # arduino-cli installed libraries copied under main/libs/.
 if(DEFINED ENV{{ARDUINO_ESP32_PATH}})
@@ -257,6 +320,22 @@ if(DEFINED ENV{{ARDUINO_ESP32_PATH}})
         {includes_str}
         REQUIRES ${{_arduino_comp_name}}
     )
+    # Force-include our fallback defines header on every translation unit
+    # in this component so third-party libraries that reference unset
+    # sdkconfig macros (e.g. CONFIG_ESP_TASK_WDT_TIMEOUT_S) still compile.
+    target_compile_options(${{COMPONENT_LIB}} PRIVATE
+        "-include" "${{CMAKE_CURRENT_LIST_DIR}}/_velxio_fallback_defines.h"
+    )
+    # Link the arduino-esp32 precompiled SDK libraries that ESP-IDF 4.4.7
+    # doesn't provide as components. Without this, LittleFS.cpp compiles
+    # fine (headers are in the include path from the root CMakeLists.txt)
+    # but link fails with undefined refs to esp_littlefs_*, etc.
+    set(_arduino_sdk_lib "$ENV{{ARDUINO_ESP32_PATH}}/tools/sdk/${{IDF_TARGET}}/lib")
+    if(EXISTS "${{_arduino_sdk_lib}}/libesp_littlefs.a")
+        target_link_libraries(${{COMPONENT_LIB}} PUBLIC
+            "${{_arduino_sdk_lib}}/libesp_littlefs.a"
+        )
+    endif()
 else()
     # Pure ESP-IDF mode: main.c #includes sketch_translated.c
     idf_component_register(

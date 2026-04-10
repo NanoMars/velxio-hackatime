@@ -42,6 +42,12 @@ CONFIG_COMPILER_CXX_EXCEPTIONS=y
 CONFIG_BT_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 
+# Custom partition table so we get a "spiffs" partition for LittleFS.
+# Velxio's partitions.csv sits next to this file in the template dir.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
 # LittleFS — enables compilation of arduino-esp32's LittleFS wrapper.
 # The entire LittleFS.cpp is #ifdef'd on CONFIG_LITTLEFS_PAGE_SIZE, so
 # without this setting the linker can't find LittleFS / fs::LittleFSFS.

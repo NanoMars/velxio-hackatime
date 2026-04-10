@@ -27,6 +27,13 @@ idf_build_set_property(COMPILE_OPTIONS
     "-DCONFIG_LITTLEFS_USE_MTIME=1"
     "-DCONFIG_LITTLEFS_MTIME_USE_SECONDS=1"
     "-DCONFIG_ESP_TASK_WDT_TIMEOUT_S=5"
+    # ARDUINO_ESP32_LCGAMBOA=1 tells user sketches they're running under
+    # lcgamboa's QEMU fork, so they can switch to STA mode and connect to
+    # QEMU's built-in "Espressif" access point (QEMU can't host an AP that
+    # a real browser could join). The arduino-cli path already defines
+    # this in services/arduino_cli.py — match it here so ESP-IDF builds
+    # behave the same way.
+    "-DARDUINO_ESP32_LCGAMBOA=1"
     APPEND
 )
 

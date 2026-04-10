@@ -288,6 +288,9 @@ class ESPIDFCompiler:
         # CONFIG_ESP_TASK_WDT_TIMEOUT_S even though we disable
         # CONFIG_ESP_TASK_WDT in the QEMU sdkconfig. Provide sensible
         # defaults so the source compiles without modification.
+        # ARDUINO_ESP32_LCGAMBOA=1 lets user sketches detect they're
+        # running in the lcgamboa QEMU fork and switch WiFi mode to STA
+        # (so they can reach QEMU's built-in "Espressif" access point).
         fallback_defines = [
             ('CONFIG_ESP_TASK_WDT_TIMEOUT_S', '5'),
             ('CONFIG_ASYNC_TCP_RUNNING_CORE', '1'),
@@ -295,6 +298,7 @@ class ESPIDFCompiler:
             ('CONFIG_ASYNC_TCP_QUEUE_SIZE', '64'),
             ('CONFIG_ASYNC_TCP_STACK_SIZE', '8192'),
             ('CONFIG_ASYNC_TCP_PRIORITY', '10'),
+            ('ARDUINO_ESP32_LCGAMBOA', '1'),
         ]
         # Emit each fallback as `-D` flags wrapped in `#ifndef` equivalents
         # via `target_compile_options`. We use `-D name=value` with the

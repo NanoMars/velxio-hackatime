@@ -13,6 +13,7 @@ import { useOscilloscopeStore } from './useOscilloscopeStore';
 import { RaspberryPi3Bridge } from '../simulation/RaspberryPi3Bridge';
 import { Esp32Bridge } from '../simulation/Esp32Bridge';
 import { useEditorStore } from './useEditorStore';
+import { DEFAULT_BOARD_KIND } from './defaultProject';
 import { useVfsStore } from './useVfsStore';
 import { boardPinToNumber, isBoardComponent } from '../utils/boardPinMapping';
 
@@ -276,14 +277,16 @@ function createSimulator(
   return sim;
 }
 
-// ── Default initial board (ESP32 DevKit C V4 — matches the default
-// project served by useEditorStore, which is an ESP32 captive portal
-// template). The id matches the board kind so file groups keyed on
-// `group-${id}` line up with the editor's DEFAULT_GROUP_ID. ───────────
-const INITIAL_BOARD_ID = 'esp32-devkit-c-v4';
+// ── Default initial board ───────────────────────────────────────────
+// Both the board kind and the internal board id come from
+// DEFAULT_BOARD_KIND so file groups keyed on `group-${id}` line up
+// with the editor's DEFAULT_GROUP_ID, and so the legacy `boardType`
+// field below also lines up (initSimulator branches on it to decide
+// AVR vs ESP32 bridge construction).
+const INITIAL_BOARD_ID: string = DEFAULT_BOARD_KIND;
 const INITIAL_BOARD: BoardInstance = {
   id: INITIAL_BOARD_ID,
-  boardKind: 'esp32-devkit-c-v4',
+  boardKind: DEFAULT_BOARD_KIND,
   x: DEFAULT_BOARD_POSITION.x,
   y: DEFAULT_BOARD_POSITION.y,
   running: false,
@@ -309,39 +312,53 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     };
   }
 
-  const initialSim = createSimulator(
-    'arduino-uno',
-    initialPm,
-    (ch) => {
-      set((s) => {
-        const boards = s.boards.map((b) =>
-          b.id === INITIAL_BOARD_ID ? { ...b, serialOutput: b.serialOutput + ch } : b
-        );
-        const isActive = s.activeBoardId === INITIAL_BOARD_ID;
-        return { boards, ...(isActive ? { serialOutput: s.serialOutput + ch } : {}) };
+  // Only spin up an in-browser AVR/RP2040 simulator upfront if the
+  // default board kind actually uses one. ESP32 boards are driven by an
+  // Esp32Bridge constructed lazily by initSimulator() on canvas mount —
+  // creating an AVR sim for an ESP32 default board would (a) waste a
+  // worker, and (b) leave the simulatorMap with the wrong instance,
+  // which is exactly what was causing the user-visible "Waiting for
+  // serial data..." stall: startBoard() would fall through to the
+  // ESP32 branch, find no bridge, and silently no-op.
+  let initialSim: AVRSimulator | RP2040Simulator | RiscVSimulator | Esp32C3Simulator | null = null;
+  if (!isEsp32Kind(DEFAULT_BOARD_KIND)) {
+    const sim = createSimulator(
+      DEFAULT_BOARD_KIND,
+      initialPm,
+      (ch) => {
+        set((s) => {
+          const boards = s.boards.map((b) =>
+            b.id === INITIAL_BOARD_ID ? { ...b, serialOutput: b.serialOutput + ch } : b
+          );
+          const isActive = s.activeBoardId === INITIAL_BOARD_ID;
+          return { boards, ...(isActive ? { serialOutput: s.serialOutput + ch } : {}) };
+        });
+      },
+      (baud) => {
+        set((s) => {
+          const boards = s.boards.map((b) =>
+            b.id === INITIAL_BOARD_ID ? { ...b, serialBaudRate: baud } : b
+          );
+          const isActive = s.activeBoardId === INITIAL_BOARD_ID;
+          return { boards, ...(isActive ? { serialBaudRate: baud } : {}) };
+        });
+      },
+      getOscilloscopeCallback(INITIAL_BOARD_ID),
+    );
+    // Cross-board serial bridge for the initial board: AVR TX → Pi bridges RX
+    const initialOrigSerial = sim.onSerialData;
+    sim.onSerialData = (ch: string) => {
+      initialOrigSerial?.(ch);
+      get().boards.forEach((b) => {
+        const bridge = bridgeMap.get(b.id);
+        if (bridge) bridge.sendSerialBytes([ch.charCodeAt(0)]);
       });
-    },
-    (baud) => {
-      set((s) => {
-        const boards = s.boards.map((b) =>
-          b.id === INITIAL_BOARD_ID ? { ...b, serialBaudRate: baud } : b
-        );
-        const isActive = s.activeBoardId === INITIAL_BOARD_ID;
-        return { boards, ...(isActive ? { serialBaudRate: baud } : {}) };
-      });
-    },
-    getOscilloscopeCallback(INITIAL_BOARD_ID),
-  );
-  // Cross-board serial bridge for the initial board: AVR TX → Pi bridges RX
-  const initialOrigSerial = initialSim.onSerialData;
-  initialSim.onSerialData = (ch: string) => {
-    initialOrigSerial?.(ch);
-    get().boards.forEach((b) => {
-      const bridge = bridgeMap.get(b.id);
-      if (bridge) bridge.sendSerialBytes([ch.charCodeAt(0)]);
-    });
-  };
-  simulatorMap.set(INITIAL_BOARD_ID, initialSim);
+    };
+    simulatorMap.set(INITIAL_BOARD_ID, sim);
+    initialSim = sim;
+  }
+  // For an ESP32 default board, simulator stays null until initSimulator()
+  // runs on canvas mount and constructs the proper Esp32Bridge + shim.
 
   // ── Legacy single-board PinManager (references initial board's pm) ───────
   const legacyPinManager = initialPm;
@@ -760,7 +777,11 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     },
 
     // ── Legacy single-board API ───────────────────────────────────────────
-    boardType: 'arduino-uno',
+    // boardType mirrors the active board's kind. initSimulator() branches
+    // on this to decide whether to spin up an AVR/RP2040 simulator or an
+    // ESP32 bridge, so it MUST match INITIAL_BOARD.boardKind on first
+    // load (otherwise hitting Run on the default board does nothing).
+    boardType: DEFAULT_BOARD_KIND,
     boardPosition: { ...DEFAULT_BOARD_POSITION },
     simulator: initialSim,
     pinManager: legacyPinManager,

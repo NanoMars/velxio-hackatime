@@ -248,15 +248,34 @@ async def hackclub_callback(code: str, db: AsyncSession = Depends(get_db)):
             user.hackclub_id = hackclub_id
 
     if not user:
-        # Generate a username. Prefer slack_id-derived, then email prefix, then name.
+        # Generate a username, preferring something a human would actually
+        # recognise. Order:
+        #   1. first_name (e.g. "armand")
+        #   2. first_name + last_name (e.g. "armandpackham")
+        #   3. email prefix (e.g. "armand" from armand@example.com)
+        #   4. hc-<slack_id> (e.g. "hc-u07abep916x") as a last resort.
+        # Each candidate is normalised to [a-z0-9_-] and capped at 28 chars.
         import re
-        if slack_id:
-            base = f"hc-{slack_id.lower()}"
-        elif email:
-            base = email.split("@")[0].lower()
-        else:
-            base = f"{first_name}{last_name}".lower() or "hacker"
-        base = re.sub(r"[^a-z0-9_-]", "-", base)[:28] or "hacker"
+
+        def _normalise(raw: str) -> str:
+            cleaned = re.sub(r"[^a-z0-9_-]", "-", raw.strip().lower())
+            cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+            return cleaned[:28]
+
+        candidates = [
+            first_name,
+            f"{first_name}{last_name}",
+            email.split("@")[0] if email else "",
+            f"hc-{slack_id}" if slack_id else "",
+        ]
+        base = ""
+        for c in candidates:
+            normalised = _normalise(c) if c else ""
+            if normalised:
+                base = normalised
+                break
+        if not base:
+            base = "hacker"
 
         username = base
         counter = 1

@@ -1,4 +1,10 @@
 import { create } from 'zustand';
+import {
+  DEFAULT_BOARD_KIND,
+  DEFAULT_INO_CONTENT,
+  DEFAULT_HTML_H_CONTENT,
+  DEFAULT_PY_CONTENT,
+} from './defaultProject';
 
 export interface WorkspaceFile {
   id: string;
@@ -8,46 +14,27 @@ export interface WorkspaceFile {
 }
 
 const MAIN_ID = 'main-sketch';
+const HTML_ID = 'html-header';
 
-const DEFAULT_INO_CONTENT = `// Arduino Blink Example
-void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
-}
+/** Default file group id is derived from the default board kind. */
+const DEFAULT_GROUP_ID = `group-${DEFAULT_BOARD_KIND}`;
 
-void loop() {
-  digitalWrite(LED_BUILTIN, HIGH);
-  delay(1000);
-  digitalWrite(LED_BUILTIN, LOW);
-  delay(1000);
-}`;
-
-const DEFAULT_PY_CONTENT = `import RPi.GPIO as GPIO
-import time
-
-LED_PIN = 17
-
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(LED_PIN, GPIO.OUT)
-
-try:
-    while True:
-        GPIO.output(LED_PIN, GPIO.HIGH)
-        time.sleep(1)
-        GPIO.output(LED_PIN, GPIO.LOW)
-        time.sleep(1)
-except KeyboardInterrupt:
-    GPIO.cleanup()
-`;
-
-const DEFAULT_FILE: WorkspaceFile = {
+const DEFAULT_SKETCH_FILE: WorkspaceFile = {
   id: MAIN_ID,
   name: 'sketch.ino',
   content: DEFAULT_INO_CONTENT,
   modified: false,
 };
 
-/** Default file group for the initial Arduino Uno board */
-const DEFAULT_GROUP_ID = 'group-arduino-uno';
+const DEFAULT_HTML_FILE: WorkspaceFile = {
+  id: HTML_ID,
+  name: 'html.h',
+  content: DEFAULT_HTML_H_CONTENT,
+  modified: false,
+};
+
+/** Files shown in the editor on first load (no saved project). */
+const DEFAULT_FILES: WorkspaceFile[] = [DEFAULT_SKETCH_FILE, DEFAULT_HTML_FILE];
 
 interface EditorState {
   files: WorkspaceFile[];
@@ -98,15 +85,16 @@ interface EditorState {
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
-  files: [DEFAULT_FILE],
+  files: DEFAULT_FILES,
   activeFileId: MAIN_ID,
   openFileIds: [MAIN_ID],
   theme: 'vs-dark',
   fontSize: 14,
 
-  // File groups — initial state has one group for the default Arduino Uno board
+  // File groups — initial state has one group for the default ESP32 board,
+  // pre-populated with the captive-portal template's sketch.ino + html.h.
   fileGroups: {
-    [DEFAULT_GROUP_ID]: [DEFAULT_FILE],
+    [DEFAULT_GROUP_ID]: DEFAULT_FILES,
   },
   activeGroupId: DEFAULT_GROUP_ID,
   activeGroupFileId: { [DEFAULT_GROUP_ID]: MAIN_ID },

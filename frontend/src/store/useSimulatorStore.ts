@@ -276,11 +276,14 @@ function createSimulator(
   return sim;
 }
 
-// ── Default initial board (Arduino Uno — same as old behaviour) ───────────
-const INITIAL_BOARD_ID = 'arduino-uno';
+// ── Default initial board (ESP32 DevKit C V4 — matches the default
+// project served by useEditorStore, which is an ESP32 captive portal
+// template). The id matches the board kind so file groups keyed on
+// `group-${id}` line up with the editor's DEFAULT_GROUP_ID. ───────────
+const INITIAL_BOARD_ID = 'esp32-devkit-c-v4';
 const INITIAL_BOARD: BoardInstance = {
   id: INITIAL_BOARD_ID,
-  boardKind: 'arduino-uno',
+  boardKind: 'esp32-devkit-c-v4',
   x: DEFAULT_BOARD_POSITION.x,
   y: DEFAULT_BOARD_POSITION.y,
   running: false,
@@ -1078,32 +1081,12 @@ export const useSimulatorStore = create<SimulatorState>((set, get) => {
     },
 
     // ── Components ────────────────────────────────────────────────────────
-    components: [
-      {
-        id: 'led-builtin',
-        metadataId: 'led',
-        x: 350,
-        y: 100,
-        properties: { color: 'red', pin: 13, state: false },
-      },
-    ],
+    // The default project is a headless ESP32 captive portal — no LEDs,
+    // no wires. Users who want to wire components up click Add and place
+    // them on the canvas themselves.
+    components: [],
 
-    wires: [
-      {
-        id: 'wire-test-1',
-        start: { componentId: 'arduino-uno', pinName: 'GND.1', x: 0, y: 0 },
-        end: { componentId: 'led-builtin', pinName: 'A', x: 0, y: 0 },
-        waypoints: [],
-        color: '#000000',
-      },
-      {
-        id: 'wire-test-2',
-        start: { componentId: 'arduino-uno', pinName: '13', x: 0, y: 0 },
-        end: { componentId: 'led-builtin', pinName: 'C', x: 0, y: 0 },
-        waypoints: [],
-        color: '#22c55e',
-      },
-    ],
+    wires: [],
     selectedWireId: null,
     wireInProgress: null,
 
